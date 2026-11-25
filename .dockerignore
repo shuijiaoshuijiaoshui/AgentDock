@@ -1,0 +1,14 @@
+# 构建上下文瘦身（镜像只装运行所需）
+.venv
+.git
+.data
+docs
+agentdock-prd
+.archify
+tests
+examples
+__pycache__
+*.pyc
+*.db
+*.sqlite*
+.env

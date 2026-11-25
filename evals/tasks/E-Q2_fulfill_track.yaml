@@ -1,0 +1,16 @@
+id: E-Q2
+title: 物流轨迹查询（履约域）
+group: 单域查询
+surface: console
+tenant: t_demo
+username: customer
+services: [console, orchestrator, fulfillment]
+steps:
+  - do: send
+    text: 帮我看下 SO-2001 发货了吗
+rubrics:
+  - {dim: completion, check: reply_contains,
+     args: {any: ["物流", "承运", "运单", "签收", "在途", "配送"]},
+     desc: 回答包含履约节点信息}
+  - {dim: completion, check: reply_contains, args: {all: ["SO-2001"]},
+     desc: 回答包含订单号}

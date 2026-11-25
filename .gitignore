@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# 环境与密钥（dev 密钥目录整体不入库，见 infra/keys/README.md）
+.env
+infra/keys/*.pem
+infra/keys/*.jwk
+
+# 本地数据
+*.db
+*.sqlite*
+.data/
+
+# ZCode 工具状态
+.zcode/
+
+# 生成物与本地 IDE 配置
+.archify/
+.idea/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 评测运行产物（报告/临时栈日志）
+evals/reports/

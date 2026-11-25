@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentDock · 前置知识与概念地图</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.7; }
+  h2 { font-size:17px; margin:26px 0 10px; padding-left:10px; border-left:4px solid var(--brand); scroll-margin-top:120px; }
+  details { margin:8px 0; background:#fff; border:1px solid var(--line); border-radius:10px; }
+  summary { cursor:pointer; padding:10px 16px; font-size:14px; font-weight:700; }
+  summary:hover { color:var(--brand); }
+  .details-body { padding:4px 16px 12px; }
+  a.x { color:var(--brand); text-decoration:none; border-bottom:1px dashed #b7ebd4; }
+  code { font-family:Consolas,monospace; font-size:11.5px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 5px; }
+  .map { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:8px 0; font-size:13px; line-height:2.1; }
+  .map b { background:#eaf8f0; border:1px solid #b7ebd4; border-radius:6px; padding:2px 8px; font-weight:500; white-space:nowrap; }
+  .map i { color:var(--muted); font-style:normal; margin:0 4px; }
+  .map .src { color:var(--blue); font-size:11px; }
+  table.t { width:100%; border-collapse:collapse; margin:8px 0; background:#fff; border-radius:10px; overflow:hidden; }
+  table.t th, table.t td { border:1px solid var(--line); padding:7px 10px; font-size:12.5px; text-align:left; vertical-align:top; }
+  table.t th { background:#eaf4ff; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="tour.html">← 返回总览</a> ｜ 新人第 1 步起点 ｜ 姊妹页：<a class="x" href="flow.html">流程图</a> · <a class="x" href="swimlane.html">泳道图</a></div>
+  <h1>🧭 前置知识 · 概念地图 · 术语表</h1>
+  <div class="sub">
+    最后对照代码校验：<b>2026-11-07</b>（防腐 = 改代码后 AI 重读重生成）。
+  </div>
+
+  <h2>三句话速览</h2>
+  <div class="map">
+    ① 这是一个<b>多 Agent 服务端</b>：客户只对着一个入口说话，编排 Agent 把话路由给各业务域的域 Agent（A2A 协议互相委托），域内用 LangGraph 图 + 工具查库回答；十个进程里还有审计单写者 securityd。<br>
+    ② <b>确定性优先</b>：AI 只负责"听懂"（意图+槽位）和"说人话"（合成），<b>调谁、什么顺序、何时转人工</b>全部由代码路由表（27 意图）和条件边决定——同一句话永远走同一条链；跨域冲突由纯函数裁决、写链失败由 Saga 补偿。<br>
+    ③ 接不住的时候<b>转人工</b>：结构化交接包（含真实近 6 轮）经同一条 A2A 协议交给人工坐席工作台，坐席在 WebSocket 双向聊天里接管；全程<b>每跳审计哈希链 + OTel 调用树</b>，事后可回放追责。
+  </div>
+
+  <h2>概念地图（每条边标注讲解页）</h2>
+  <div class="map">
+    <b>A2A 协议</b> <i>──Card 发现/委托──▶</i> <b>AgentCard</b> <span class="src">〔shared.html#app〕</span><br>
+    <b>AgentCard</b> <i>──ES256 JWS 验签通过才信任──▶</i> <b>建 Task（M4）</b> <span class="src">〔flow.html ② · shared.html#app〕</span><br>
+    <b>A2A 协议</b> <i>──Task 生命周期──▶</i> <b>Task / contextId / input-required</b> <span class="src">〔prerequisites 术语表 · shared.html#executor〕</span><br>
+    <b>Task</b> <i>──thread_id=task_id──▶</i> <b>LangGraph 图可恢复</b> <span class="src">〔shared.html · journey.html#j4c〕</span><br>
+    <b>LangGraph</b> <i>──StateGraph 条件边──▶</i> <b>确定性路由</b> <span class="src">〔orchestrator.html · rules-simulator.html〕</span><br>
+    <b>确定性路由</b> <i>──命中域 + mode──▶</i> <b>域 Agent（单域/并行/串行/仲裁）</b> <span class="src">〔merchandising.html · flow.html 黄带〕</span><br>
+    <b>域 Agent</b> <i>──工具查库──▶</i> <b>Mock SQLite + Artifact 权威标注</b> <span class="src">〔merchandising.html〕</span><br>
+    <b>多域产物</b> <i>──字段权威矩阵──▶</i> <b>arbitrate 纯函数裁决（禁 LLM）</b> <span class="src">〔flow.html · orchestrator.html〕</span><br>
+    <b>写链失败</b> <i>──逆序补偿──▶</i> <b>Saga（biz_key 幂等，无悬挂）</b> <span class="src">〔swimlane 场景 B〕</span><br>
+    <b>跨轮对话</b> <i>──摘要+近 6 轮──▶</i> <b>understand/synthesize 历史注入（M4）</b> <span class="src">〔journey.html#j4 · orchestrator.html〕</span><br>
+    <b>路由未命中/碰壁/高风险</b> <i>──交接包──▶</i> <b>人工坐席（handoff.accept）</b> <span class="src">〔orchestrator.html · console.html〕</span><br>
+    <b>人工坐席</b> <i>──WebSocket 扇出──▶</i> <b>工作台 ⇄ 客户页 双向聊天</b> <span class="src">〔console.html#ws〕</span><br>
+    <b>每一跳</b> <i>──审计哈希链 / traceparent──▶</i> <b>securityd 审计 + OTel 调用树</b> <span class="src">〔journey.html#j11 · shared.html#trace〕</span>
+  </div>
+
+  <details open><summary>术语速查（点开可折叠）</summary><div class="details-body">
+    <table class="t">
+      <tr><th>术语</th><th>一句话解释</th><th>在本项目里对应</th></tr>
+      <tr><td>A2A（Agent-to-Agent）</td><td>代理间协作协议：Agent 互相用 HTTP/JSON-RPC 委托任务</td><td>a2a-sdk 1.2.3；编排↔域、console↔编排、编排↔坐席全走它</td></tr>
+      <tr><td>AgentCard</td><td>Agent 的"名片"：名字、能力、skill 列表，挂在 /.well-known/agent-card.json 供发现</td><td><code>build_agent_card</code>，10 服务各一张；M4 起随 Card 附 JWS 签名</td></tr>
+      <tr><td>JWS / ES256（M4）</td><td>JSON Web Signature；ES256 = ECDSA P-256 非对称签名，验签方只持公钥</td><td>build_a2a_app 统一签发；delegate 验签通过才建 Task；kid 轮换经 CARD_VERIFY_KEYS_JSON</td></tr>
+      <tr><td>RFC 8785 JCS</td><td>JSON 规范化序列化标准，保证签名/验签两侧字节一致</td><td>SDK signing 模块内部完成，本项目不自研</td></tr>
+      <tr><td>Task / taskId</td><td>一次委托的载体，有状态机（submitted→working→completed/input-required…）</td><td>每次对话一轮 = 新 Task；thread_id = tenant:task_id</td></tr>
+      <tr><td>contextId</td><td>会话关联键：多轮、转人工、历史摘全都靠它串</td><td>== console 的 conversations.id，全系统主键</td></tr>
+      <tr><td>input-required</td><td>Task 暂停等输入的状态（澄清、二次授权）</td><td>LangGraph interrupt() 的协议映射</td></tr>
+      <tr><td>interrupt / resume</td><td>LangGraph 的图内暂停与续跑原语</td><td>澄清、域追问上抛（ask_user）都靠它；暂停态在 checkpointer 里</td></tr>
+      <tr><td>checkpointer</td><td>图状态的持久化层，重启后可从断点恢复</td><td>本机 AsyncSqliteSaver；生产 AsyncPostgresSaver</td></tr>
+      <tr><td>reducer</td><td>LangGraph 里"新状态怎么并进旧状态"的函数</td><td>merge_dict（dict）/ merge_list（list，勿混用！）</td></tr>
+      <tr><td>权威源矩阵</td><td>每类事实只有一个域说了算（成交价归订单、实付/到账归财务、ATP 归履约…）</td><td>orchestrator/arbitrate.py FIELD_AUTHORITY + FACT_AUTHORITY，纯函数查表</td></tr>
+      <tr><td>Saga 补偿</td><td>长事务失败时按已完成步骤逆序执行补偿动作</td><td>cancel_refund：订单取消→财务退款；失败恢复订单，biz_key 幂等</td></tr>
+      <tr><td>交接包（handoff package）</td><td>转人工时给坐席的结构化摘要（含 AI 草案、决策日志、近 6 轮历史），不是聊天记录</td><td>orchestrator handoff 节点组装（graph.py:1246）</td></tr>
+      <tr><td>会话摘要（M4）</td><td>更早历史的滚动摘要：近 N 轮原文 + 摘要，控制 token 线性膨胀</td><td>session_summaries 表；编排生成、渠道层落库、下轮回注</td></tr>
+      <tr><td>traceparent（M4）</td><td>W3C Trace Context 的跨进程链路头（version-trace-id-span-id-flags）</td><td>delegate 注入 metadata/出站头；start_server_span 取远端父上下文</td></tr>
+      <tr><td>span / 调用树（M4）</td><td>一次操作的时间区间；父子关系拼成跨服务调用树</td><td>每服务 span 落 .data/traces/*.jsonl，GET /api/traces 拼树</td></tr>
+      <tr><td>审计哈希链</td><td>每条审计带前一条哈希，改/删任一条即断链</td><td>securityd 单写者；verify_chain 全量校验并定位首条被篡改行</td></tr>
+      <tr><td>JWT / scope / 租户</td><td>身份凭证：tenant/actor/role/scopes 全在验签后的 claim 里</td><td>HTTP Bearer/Cookie + WS 首包认证；SQL 强制 tenant 过滤</td></tr>
+      <tr><td>PII 脱敏</td><td>手机/身份证/银行卡/邮箱等敏感信息在进 LLM 前替换</td><td>mask_pii 三道（入口/落库/历史块）+ llm_guard 键级清洗</td></tr>
+      <tr><td>桩 Server（stub）</td><td>占位服务：Card 可发现、调用一律 rejected，绝不假装成功</td><td>domains/_stub/，参数化起多域</td></tr>
+      <tr><td>SSE / WebSocket</td><td>两种服务端实时推送通道；WS 全双工可双向发</td><td>人工对话用 WS（双向，首包认证），SSE 已退役</td></tr>
+      <tr><td>OTel（OpenTelemetry）</td><td>可观测标准：trace/metrics/logs 的 API 与 SDK</td><td>本阶段只接 trace（span），导出为文件；OTLP 未接</td></tr>
+    </table>
+  </div></details>
+
+  <div class="note">读完本页 → 回 <a class="x" href="tour.html">总览主图</a> → <a class="x" href="flow.html">流程图</a> → <a class="x" href="swimlane.html">泳道图</a> → <a class="x" href="journey.html">journey 旅程</a>。</div>
+</div>
+</body>
+</html>

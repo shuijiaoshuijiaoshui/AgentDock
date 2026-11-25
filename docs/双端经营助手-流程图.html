@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>双端经营助手 · 流程图</title>
+<style>
+  :root {
+    --bg: #f6f8fb;
+    --card: #ffffff;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --blue: #4285f4;
+    --green: #34a853;
+    --orange: #f9ab00;
+    --purple: #a142f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    padding: 28px 32px 18px;
+    background: linear-gradient(120deg, #eef4ff, #f7f0ff 60%, #fff);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0 0 6px; font-size: 24px; }
+  header p { margin: 0; color: var(--muted); max-width: 980px; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px; background: #fff;
+    border: 1px solid var(--line); font-size: 12px; color: var(--muted);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .dot.blue { background: var(--blue); }
+  .dot.green { background: var(--green); }
+  .dot.orange { background: var(--orange); }
+  .dot.purple { background: var(--purple); }
+  .dot.dashed { background: #fff; border: 2px dashed var(--muted); }
+  main { max-width: 1500px; margin: 0 auto; padding: 24px 24px 60px; }
+  section {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 20px 16px; margin-bottom: 22px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  section h2 { margin: 0 0 4px; font-size: 18px; }
+  section .sub { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  .mermaid { text-align: center; overflow-x: auto; }
+  .note {
+    margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+    background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+    font-size: 12px;
+  }
+  footer { max-width: 1500px; margin: 0 auto; padding: 0 24px 40px; color: var(--muted); font-size: 12px; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 5px; }
+</style>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: { htmlLabels: true, curve: 'basis', useMaxWidth: true },
+    sequence: { mirrorActors: false, useMaxWidth: true }
+  });
+</script>
+</head>
+<body>
+<header>
+  <h1>双端经营助手 · 流程图</h1>
+  <p>消费者侧 = LLM 导购/问答 + 规则化交易办理；商家侧 = 数据经营助手（投流 / 选品 / 竞品）。
+     两个入口共用一套编排、域工具、权限、审批和审计。</p>
+  <div class="legend">
+    <span class="chip"><span class="dot blue"></span>LLM 负责理解与表达</span>
+    <span class="chip"><span class="dot green"></span>规则 / 路由 / 工具</span>
+    <span class="chip"><span class="dot orange"></span>人工门禁</span>
+    <span class="chip"><span class="dot purple"></span>域数据 / 工具</span>
+    <span class="chip"><span class="dot dashed"></span>规划中（Phase 1–2）</span>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>1. 双端总览：两个入口，一套底座</h2>
+    <p class="sub">消费者走客户页，商家走经营台；坐席工作台是内部兜底。域数据只有一份。</p>
+<pre class="mermaid">
+flowchart TB
+  subgraph Actors["使用者"]
+    C["消费者"]
+    M["商家运营 / 店长 / 投放"]
+    A0["客服坐席"]
+  end
+
+  subgraph Entry["入口层 console :8307"]
+    CP["客户页 /customer"]
+    MP["商家经营台 /merchant / Phase 1 规划"]
+    WB["坐席工作台 /"]
+  end
+
+  subgraph Orch["编排层 orchestrator :8300"]
+    I["intake"]
+    U["understand / LLM 意图 / 槽位"]
+    R["route / 确定性查表"]
+    AD["advance / single / serial / parallel / arbitrate"]
+    S["synthesize / LLM 组织语言"]
+    D["deliver"]
+    H["handoff"]
+    I --> U --> R --> AD --> S --> D
+    AD --> H
+  end
+
+  subgraph Domains["域 Agent 层：数据权威 + 故障边界"]
+    G["商品 merchandising"]
+    O["订单 order"]
+    F["履约 fulfillment"]
+    AFTER["售后 aftersale"]
+    FI["财务 finance"]
+    P["政策 policy"]
+    CU["客户 customer"]
+    MK["营销 marketing"]
+  end
+
+  SEC["securityd :8309 / 审计哈希链 / 审批 / 确认"]
+
+  C --> CP
+  M --> MP
+  A0 --> WB
+  CP --> I
+  MP --> I
+  WB --> I
+  R --> G
+  R --> O
+  R --> F
+  R --> AFTER
+  R --> FI
+  R --> P
+  R --> CU
+  R --> MK
+  AD --> G
+  AD --> O
+  AD --> F
+  AD --> AFTER
+  AD --> FI
+  AD --> P
+  AD --> CU
+  AD --> MK
+  G --> SEC
+  O --> SEC
+  F --> SEC
+  AFTER --> SEC
+  FI --> SEC
+  P --> SEC
+  CU --> SEC
+  MK --> SEC
+  D --> CP
+  D --> MP
+  D --> WB
+
+  classDef llm fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
+  classDef rule fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+  classDef human fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
+  classDef data fill:#f3e8fd,stroke:#a142f4,stroke-width:2px;
+  classDef planned stroke-dasharray: 5 5,fill:#fafafa,color:#666;
+  class U,S llm;
+  class I,R,AD,D rule;
+  class H,SEC human;
+  class G,O,F,AFTER,FI,P,CU,MK data;
+  class MP planned;
+</pre>
+  </section>
+
+  <section>
+    <h2>2. 消费者侧：LLM 听懂，规则办事</h2>
+    <p class="sub">商品问答/对比走 LLM + 商品域工具；退款/改址走规则、确认、审批，LLM 不直接写库。</p>
+<pre class="mermaid">
+flowchart TB
+  U["消费者一句话"] --> C["console / JWT / 租户 / PII / 限流"]
+  C --> O["orchestrator / understand：LLM 意图 + 槽位"]
+  O --> R{"route 查表"}
+
+  R -->|商品问答 / 对比| G["商品域 / product.lookup / retrieve / compare.matrix / promo.evaluate / subsidy.check"]
+  G --> S1["synthesize：LLM / 事实来自工具；价格标 estimate"]
+  S1 --> ANS["回答 / 对比卡"]
+
+  R -->|退款 / 售后| AFTER["售后域 / aftersale.eligibility"]
+  AFTER --> FI["财务域 / refund.status / refund.settle"]
+  FI --> AP{"退款审批 / 一律人工"}
+  AP -->|通过| FIOK["执行退款 / 幂等 + 审计"]
+  AP -->|驳回 / 失败| FIH["告知原因 / 升级人工"]
+  FIOK --> ANS
+  FIH --> ANS
+
+  R -->|改地址| F["履约域 / fulfill.track 判发货"]
+  F -->|已发货 / 已签收| VETO["上游否决 / 订单域不调用"]
+  F -->|未发货| OD["订单域 / order.amend"]
+  OD --> CONF{"两阶段确认 / confirm_token + TTL"}
+  CONF -->|确认| OK["改址成功 + 审计"]
+  CONF -->|拒绝 / 超时| NO["不改，告知"]
+  VETO --> ANS
+  OK --> ANS
+  NO --> ANS
+
+  R -->|转人工| H["handoff / 交接包：近6轮 + 意图 + 待办"]
+  H --> DESK["坐席工作台"]
+
+  classDef llm fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
+  classDef rule fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+  classDef human fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
+  classDef data fill:#f3e8fd,stroke:#a142f4,stroke-width:2px;
+  class O,S1 llm;
+  class R rule;
+  class AP,CONF,H human;
+  class G,AFTER,FI,F,OD data;
+</pre>
+  </section>
+
+  <section>
+    <h2>2.1 取消订单 + 退款（Saga + 审批）</h2>
+    <p class="sub">订单先取消，财务后动钱；退款一律审批；财务失败逆序恢复订单。</p>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 消费者
+  participant C as console
+  participant O as 编排
+  participant D as 订单域
+  participant F as 财务域
+  participant S as securityd
+
+  U->>C: 取消订单 SO-2001 并退款
+  C->>O: 鉴权 / 租户 / PII / 限流后转发
+  O->>O: understand：intent=cancel_refund，槽位 order_no
+  O->>D: order.cancel（biz_key 幂等，记录 prev_status）
+  D-->>O: cancelled
+  O->>F: refund.settle
+  F->>S: 创建退款审批（一律人工）
+  S-->>F: pending_approval
+  F-->>O: pending_approval
+  O-->>U: 已提交审批，告知进度
+  alt 审批通过
+    S->>F: 恢复执行（approval_id）
+    F->>F: 幂等写 refunds(status=settled)
+    F-->>O: settled
+    O-->>U: 退款完成 / 到账时效
+  else 财务失败
+    O->>D: order.restore（逆序补偿）
+    D-->>O: 恢复原状态
+    O-->>U: 失败，升级人工
+  end
+</pre>
+  </section>
+
+  <section>
+    <h2>2.2 改地址（履约先判 + 两阶段确认）</h2>
+    <p class="sub">先查履约状态；已发货直接否决，未发货才进订单域确认。</p>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 消费者
+  participant O as 编排
+  participant F as 履约域
+  participant D as 订单域
+
+  U->>O: 帮我把 SO-2001 改地址
+  O->>F: fulfill.track（判是否已发货）
+  alt 已发货 / 已签收
+    F-->>O: shipped / signed
+    O-->>U: 上游否决，订单域不调用
+  else 未发货
+    F-->>O: paid
+    O->>D: order.amend（第一次，pending_confirm）
+    D-->>O: confirm_token + TTL + payload_hash
+    O-->>U: 请确认新地址
+    U->>O: 确认
+    O->>D: order.amend（带 confirm_token）
+    D-->>O: 改址成功
+    O-->>U: 成功 + 审计
+  end
+</pre>
+  </section>
+
+  <section>
+    <h2>3. 商家侧：数据经营助手，建议 + 人工确认</h2>
+    <p class="sub">投流/选品/竞品由规则和营销域工具算数，LLM 解释；计划单确认，预算执行人工；监控是 Phase 2。</p>
+<pre class="mermaid">
+flowchart TB
+  M["商家 / 运营 / 投放"] --> C["console / JWT / 租户 / 角色 scope"]
+  C --> O["orchestrator / marketing 意图"]
+  O --> R{"route 查表"}
+
+  R -->|ad_analysis| AD["marketing 域 / ad_report / 花费/曝光/点击/转化/GMV/ROI/CVR"]
+  R -->|product_selection| PS["product_selection / 增速 × 竞品价差打分 top5"]
+  R -->|competitor_watch| CW["competitor_watch / 价差率 + 7天降价≥5%"]
+  R -->|hot_restock| HR["hot_rank → fulfillment.atp / 爆款 → 备货评估"]
+
+  AD --> S["synthesize / LLM 解释与建议"]
+  PS --> S
+  CW --> S
+  HR --> S
+  S --> CARD["结构化卡片 / ROI 表 / 选品排名 / 降价提醒"]
+  CARD --> PLAN{"保存方案？"}
+  PLAN -->|是| PSV["plan_save / pending_confirm"]
+  PSV --> CONF{"商家确认 / confirm_token"}
+  CONF -->|确认| DB["marketing_plans / status=confirmed"]
+  CONF -->|拒绝 / 超时| NO["不落库"]
+  DB --> HUMAN["人工执行预算 / 投放 / 不自动调预算"]
+
+  subgraph Monitor["Phase 2：持续监控（待建）"]
+    SCH["定时任务 / 每日竞品快照 / 投放日报"] -.-> RULES["规则引擎 / 降价≥5% / ROI 低于 1 / 花费突增"]
+    RULES -.-> ALERT["marketing_alerts / 去重 + 状态"]
+    ALERT -.-> CENTER["商家告警中心 / 确认 / 解决"]
+    CENTER -.-> M
+  end
+
+  classDef llm fill:#e8f0fe,stroke:#4285f4,stroke-width:2px;
+  classDef rule fill:#e6f4ea,stroke:#34a853,stroke-width:2px;
+  classDef human fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
+  classDef data fill:#f3e8fd,stroke:#a142f4,stroke-width:2px;
+  classDef planned stroke-dasharray: 5 5,fill:#fafafa,color:#666;
+  class S llm;
+  class R,PSV rule;
+  class PLAN,CONF,HUMAN human;
+  class AD,PS,CW,HR,DB data;
+  class SCH,RULES,ALERT,CENTER planned;
+</pre>
+  </section>
+</main>
+
+<footer>
+  源码：<code>docs/双端经营助手-流程图.md</code>。
+  本页用 Mermaid CDN 渲染；离线打不开图时，用 VS Code 的 Markdown Preview（Mermaid 插件）
+  或 <code>npx -y @mermaid-js/mermaid-cli</code> 渲染同名 md。
+</footer>
+</body>
+</html>

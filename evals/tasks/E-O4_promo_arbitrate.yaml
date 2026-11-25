@@ -1,0 +1,22 @@
+id: E-O4
+title: 跨域仲裁（营销估算价 vs 财务实付）
+group: 跨域编排
+surface: a2a
+tenant: t_demo
+steps:
+  - do: a2a
+    text: SO-2001 实付多少钱
+    customer_id: CU-1001
+services: [orchestrator, order, merchandising, finance]
+rubrics:
+  - {dim: completion, check: state_completed, desc: 任务完成态}
+  - {dim: completion, check: decision_log_has,
+     args: {stage: arbitrate_value, authority: finance},
+     desc: 裁决器判定财务权威并留痕}
+  - {dim: completion, check: artifact_field,
+     args: {domain: finance, path: data.amount, equals: 199.0},
+     desc: 实付=199（财务账单）}
+  - {dim: completion, check: reply_contains, args: {all: ["199"]},
+     desc: 回答给出财务口径金额}
+  - {dim: completion, check: reply_contains, args: {any: ["为准", "参考"]},
+     desc: 说明估算价仅为参考（不冒充成交价）}

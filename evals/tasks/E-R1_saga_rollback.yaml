@@ -1,0 +1,31 @@
+id: E-R1
+title: Saga 回滚（财务故障→逆序恢复订单→零残留）
+group: 鲁棒性与记忆
+surface: a2a
+tenant: t_demo
+steps:
+  - do: a2a
+    text: 取消订单 SO-2001 给我退款
+    customer_id: CU-1001
+    metadata: {chaos: finance_settle_fail}
+services: [orchestrator, order, finance]
+rubrics:
+  - {dim: completion, check: state_completed, desc: 任务完成态（回滚后作答）}
+  - {dim: completion, check: artifact_field,
+     args: {domain: order, path: data.status, equals: cancelled},
+     desc: 正向写：订单曾取消}
+  - {dim: completion, check: artifact_field,
+     args: {domain: finance, path: data.error, equals: chaos_injected},
+     desc: 财务故障注入生效}
+  - {dim: completion, check: decision_log_has,
+     args: {stage: saga_compensate, ok: true, skill: order.restore},
+     desc: 逆序补偿留痕（order.restore 成功）}
+  - {dim: completion, check: reply_contains, args: {all: ["已全部回滚"]},
+     desc: 向客户如实告知回滚}
+  - {dim: robustness, check: db_field,
+     args: {table: orders, where: {tenant_id: t_demo, order_no: SO-2001},
+            field: status, equals: signed},
+     desc: 残留=0：订单恢复原状态}
+  - {dim: robustness, check: refund_count,
+     args: {equals: 0, where: {order_no: SO-2001}},
+     desc: 残留=0：未落任何退款单}

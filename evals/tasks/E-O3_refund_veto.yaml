@@ -1,0 +1,27 @@
+id: E-O3
+title: 上游否决取消下游（资格不过→履约/财务不调用）
+group: 跨域编排
+surface: a2a
+tenant: t_demo
+steps:
+  - do: a2a
+    text: SKU-A002 的退款，SO-2005 退到哪了
+    customer_id: CU-1004
+services: [orchestrator, aftersale]
+rubrics:
+  - {dim: completion, check: state_completed, desc: 任务完成态（作答而非报错）}
+  - {dim: completion, check: artifact_field,
+     args: {domain: aftersale, path: data.eligible, equals: false},
+     desc: 售后资格=不通过}
+  - {dim: completion, check: artifact_field,
+     args: {domain: fulfillment, path: data.error, equals: cancelled_by_upstream},
+     desc: 履约被上游取消}
+  - {dim: completion, check: artifact_field,
+     args: {domain: finance, path: data.error, equals: cancelled_by_upstream},
+     desc: 财务被上游取消}
+  - {dim: completion, check: decision_log_has, args: {event: veto},
+     desc: veto 留痕（含被取消域清单）}
+  - {dim: completion, check: reply_contains, args: {all: ["已取消"]},
+     desc: 向客户说清"谁被取消"}
+  - {dim: completion, check: reply_contains, args: {any: ["资格判定不通过", "保修"]},
+     desc: 并说明否决原因}

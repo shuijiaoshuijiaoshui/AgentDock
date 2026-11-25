@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentDock · 泳道图：三个场景的跨服务时序</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:1000px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  h2 { font-size:17px; margin:28px 0 10px; padding-left:10px; border-left:4px solid var(--brand); scroll-margin-top:110px; }
+  h2.b { border-color:var(--warn); } h2.c { border-color:var(--sec); }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; line-height:1.7; }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+  a.x { color:var(--brand); text-decoration:none; border-bottom:1px dashed #b7ebd4; }
+  code { font-family:Consolas,monospace; font-size:11.5px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 5px; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--muted); margin:8px 0 4px; }
+  .legend span b { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  table.t { width:100%; border-collapse:collapse; margin:8px 0; background:#fff; border-radius:10px; overflow:hidden; }
+  table.t th, table.t td { border:1px solid var(--line); padding:7px 10px; font-size:12.5px; text-align:left; vertical-align:top; }
+  table.t th { background:#eaf4ff; } table.t td b { color:var(--blue); }
+  svg text { font-family:"PingFang SC","Microsoft YaHei",sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="tour.html">← 返回总览</a> ｜ 姊妹页：<a class="x" href="flow.html">流程图（编排主图全出口）</a> · <a class="x" href="journey.html">旅程页（观察点）</a></div>
+  <h1>🏊 泳道图 · 跨服务时序（按参与者分道）</h1>
+  <div class="sub">
+    五条泳道 = 五类参与者：<b>客户/坐席（人）→ console :8307 渠道层 → 编排 :8300 → 域 Agent（七域）→ securityd/存储</b>。
+    时间自上而下，跨道箭头即一次跨进程调用（全部走 A2A 协议：拉 Card → <b>JWS 验签</b> → 建 Task）。三个场景覆盖三种典型走向。<br>
+    最后对照代码校验：<b>2026-11-07</b> · 基于 console/server.py(2938行) · console/db.py · orchestrator/graph.py · shared/a2a_client.py · shared/tracing.py · shared/audit.py
+    · 防腐 = 改代码后让 AI 重读清单重生成。
+  </div>
+  <div class="legend">
+    <span><b style="background:#07b464"></b>主链路（跨道 = 跨进程委托）</span>
+    <span><b style="background:#1890ff"></b>回填 / 回流旁路</span>
+    <span><b style="background:#e64340"></b>降级 / 补偿 / 防御</span>
+    <span><b style="background:#8a97a5"></b>横切（审计·trace，每跳都发生）</span>
+  </div>
+
+  <!-- 场景 A -->
+  <h2>场景 A · AI 应答（含澄清支线）——一条消息的主路径</h2>
+  <svg viewBox="0 0 940 852" width="100%" xmlns="http://www.w3.org/2000/svg" style="background:#fbfcfd;border:1px solid #e6ebf0;border-radius:12px">
+    <defs>
+      <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#07b464"/></marker>
+      <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1890ff"/></marker>
+    </defs>
+    <!-- 泳道底 -->
+    <rect x="16"  y="40" width="150" height="800" fill="#f6f8fa" stroke="#e6ebf0"/>
+    <rect x="170" y="40" width="180" height="800" fill="#fbfcfd" stroke="#e6ebf0"/>
+    <rect x="354" y="40" width="200" height="800" fill="#fffdf6" stroke="#e6ebf0"/>
+    <rect x="558" y="40" width="200" height="800" fill="#f6f8fa" stroke="#e6ebf0"/>
+    <rect x="762" y="40" width="164" height="800" fill="#f0f6ff" stroke="#e6ebf0"/>
+    <text x="91"  y="28" font-size="11.5" text-anchor="middle" fill="#26313d">客户 / 坐席（人）</text>
+    <text x="260" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">console :8307 渠道层</text>
+    <text x="454" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">编排 :8300（12 节点图）</text>
+    <text x="658" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">域 Agent（七域）</text>
+    <text x="844" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">securityd · 存储</text>
+
+    <!-- A1 -->
+    <g><title>customer.html 输入，REST 首条建会话 / WS 续聊（console/server.py:1084 · :2159）</title>
+      <rect x="26" y="66" width="130" height="44" rx="8" fill="#fff" stroke="#c9d2da"/>
+      <text x="91" y="84" font-size="10.5" text-anchor="middle" fill="#26313d">A1 输入问题</text>
+      <text x="91" y="98" font-size="8.5" text-anchor="middle" fill="#8a97a5">customer.html</text></g>
+    <!-- A2 -->
+    <g><title>JWT 中间件验身份；mask_pii 后落库 messages；_build_history_meta 组装摘要+近6轮（console/server.py:586 · :555 · db.py:460）</title>
+      <rect x="180" y="126" width="160" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="260" y="144" font-size="10.5" text-anchor="middle" fill="#26313d">A2 落库 + 组装 history</text>
+      <text x="260" y="158" font-size="8.5" text-anchor="middle" fill="#8a97a5">server.py:586 · :555 · db.py:460</text></g>
+    <!-- A3 -->
+    <g><title>delegate：拉 Card → ES256 JWS 验签 → 缓存 TTL 300s → 新 Task 同 contextId；metadata 带 trace_id/history/wall_count（shared/a2a_client.py:112 · card_signing.py:137）</title>
+      <rect x="180" y="188" width="160" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="260" y="206" font-size="10.5" text-anchor="middle" fill="#26313d">A3 A2A 委托（验签）</text>
+      <text x="260" y="220" font-size="8.5" text-anchor="middle" fill="#8a97a5">a2a_client.py:112 · card_signing.py:137</text></g>
+    <!-- A4 -->
+    <g><title>intake 脱敏/装载 → understand（历史块注入）→ route 查 27 意图路由表（graph.py:362 · :466 · :505 · route_table.py:11）</title>
+      <rect x="366" y="250" width="176" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="454" y="268" font-size="10.5" text-anchor="middle" fill="#26313d">A4 intake→understand→route</text>
+      <text x="454" y="282" font-size="8.5" text-anchor="middle" fill="#8a97a5">graph.py:362/:466/:505</text></g>
+    <!-- A5 -->
+    <g><title>advance 按路由表 mode 扇出：Send per 域，每域一实例（graph.py:666 · :886）</title>
+      <rect x="366" y="312" width="176" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="454" y="330" font-size="10.5" text-anchor="middle" fill="#26313d">A5 advance → Send 扇出</text>
+      <text x="454" y="344" font-size="8.5" text-anchor="middle" fill="#8a97a5">graph.py:666/:886</text></g>
+    <!-- A6 -->
+    <g><title>域 ReAct 小图：工具查 mock.db（scope 前置），Artifact 必带 authority_domain/as_of/snapshot_id（domains/merchandising/graph.py:111 · tools.py:148）</title>
+      <rect x="570" y="374" width="176" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="658" y="392" font-size="10.5" text-anchor="middle" fill="#26313d">A6 域 ReAct 查权威数据</text>
+      <text x="658" y="406" font-size="8.5" text-anchor="middle" fill="#8a97a5">domains/merchandising/graph.py:111</text></g>
+    <!-- A7 -->
+    <g><title>收齐 → arbitrate_fields 权威清洗 → synthesize 合成 → deliver 校验（graph.py:1099 · :1181 · arbitrate.py:41）</title>
+      <rect x="366" y="436" width="176" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="454" y="454" font-size="10.5" text-anchor="middle" fill="#26313d">A7 arbitrate→synthesize→deliver</text>
+      <text x="454" y="468" font-size="8.5" text-anchor="middle" fill="#8a97a5">graph.py:1099/:1181</text></g>
+    <!-- A8 -->
+    <g><title>回复落库；wall_count / session_summary 回写（db.py:991）；ConvSockets 按会话 WS 扇出（server.py:199）</title>
+      <rect x="180" y="498" width="160" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="260" y="516" font-size="10.5" text-anchor="middle" fill="#26313d">A8 落库 + 摘要回写 + WS 扇出</text>
+      <text x="260" y="530" font-size="8.5" text-anchor="middle" fill="#8a97a5">db.py:991 · server.py:199</text></g>
+    <!-- A9 -->
+    <g><title>客户页按消息 id 去重上屏；卡片/澄清选项可点</title>
+      <rect x="26" y="560" width="130" height="44" rx="8" fill="#fff" stroke="#c9d2da"/>
+      <text x="91" y="578" font-size="10.5" text-anchor="middle" fill="#26313d">A9 收到回答</text>
+      <text x="91" y="592" font-size="8.5" text-anchor="middle" fill="#8a97a5">卡片 / 文本</text></g>
+    <!-- 横切注 -->
+    <g><title>每跳写审计（a2a.send/task.*/tool.call → 哈希链）；OTel span 按 JSONL 归档；trace_id 与审计同号可互查</title>
+      <rect x="772" y="374" width="144" height="106" rx="8" fill="#e8f3ff" stroke="#1890ff" stroke-dasharray="4,3"/>
+      <text x="844" y="394" font-size="10" text-anchor="middle" fill="#26313d">横切（每跳）</text>
+      <text x="844" y="410" font-size="8.5" text-anchor="middle" fill="#8a97a5">审计哈希链 audit.py:206</text>
+      <text x="844" y="423" font-size="8.5" text-anchor="middle" fill="#8a97a5">（securityd 单写者）</text>
+      <text x="844" y="436" font-size="8.5" text-anchor="middle" fill="#8a97a5">OTel span tracing.py:96</text>
+      <text x="844" y="449" font-size="8.5" text-anchor="middle" fill="#8a97a5">→ .data/traces/*.jsonl</text>
+      <text x="844" y="462" font-size="8.5" text-anchor="middle" fill="#8a97a5">GET /api/traces 拼树</text></g>
+    <!-- 主箭头 -->
+    <line x1="91" y1="110" x2="178" y2="126" stroke="#07b464" stroke-width="2" marker-end="url(#ag)"/>
+    <line x1="260" y1="170" x2="260" y2="188" stroke="#07b464" stroke-width="2" marker-end="url(#ag)"/>
+    <line x1="340" y1="210" x2="364" y2="250" stroke="#07b464" stroke-width="2" marker-end="url(#ag)"/>
+    <line x1="454" y1="294" x2="454" y2="312" stroke="#07b464" stroke-width="2" marker-end="url(#ag)"/>
+    <line x1="542" y1="334" x2="568" y2="374" stroke="#07b464" stroke-width="2" marker-end="url(#ag)"/>
+    <path d="M 658 418 L 658 458 L 544 458" fill="none" stroke="#07b464" stroke-width="2" marker-end="url(#ag)"/>
+    <path d="M 366 458 L 300 458 L 300 498" fill="none" stroke="#07b464" stroke-width="2" marker-end="url(#ag)"/>
+    <line x1="260" y1="542" x2="95" y2="560" stroke="#07b464" stroke-width="2" marker-end="url(#ag)"/>
+
+    <!-- 澄清支线 -->
+    <g><title>confidence&lt;0.6 且未澄清且非高风险 → interrupt()，payload（问题+top2）进 status message（graph.py:466 · route_table.py:83）</title>
+      <rect x="366" y="622" width="176" height="44" rx="8" fill="#fff1f0" stroke="#e64340"/>
+      <text x="454" y="640" font-size="10.5" text-anchor="middle" fill="#26313d">C1 澄清 interrupt（input-required）</text>
+      <text x="454" y="654" font-size="8.5" text-anchor="middle" fill="#8a97a5">graph.py:466 · 阈值 route_table.py:83</text></g>
+    <g><title>console 记 pending_task_id，问题经 WS 到客户页（server.py:586 分支）</title>
+      <rect x="180" y="684" width="160" height="44" rx="8" fill="#fff1f0" stroke="#e64340"/>
+      <text x="260" y="702" font-size="10.5" text-anchor="middle" fill="#26313d">C2 记 pending_task_id → 推问题</text>
+      <text x="260" y="716" font-size="8.5" text-anchor="middle" fill="#8a97a5">server.py:586</text></g>
+    <g><title>客户点 top2 选项或直接补答</title>
+      <rect x="26" y="746" width="130" height="44" rx="8" fill="#fff" stroke="#e64340"/>
+      <text x="91" y="764" font-size="10.5" text-anchor="middle" fill="#26313d">C3 回填选项</text>
+      <text x="91" y="778" font-size="8.5" text-anchor="middle" fill="#8a97a5">可点选项</text></g>
+    <!-- 支线箭头 -->
+    <line x1="454" y1="480" x2="454" y2="622" stroke="#e64340" stroke-width="1.8" stroke-dasharray="5,4"/>
+    <text x="460" y="600" font-size="9" fill="#e64340">低置信</text>
+    <path d="M 366 644 L 300 644 L 300 684" fill="none" stroke="#e64340" stroke-width="1.8" stroke-dasharray="5,4" marker-end="url(#ab)"/>
+    <line x1="260" y1="728" x2="95" y2="746" stroke="#e64340" stroke-width="1.8" stroke-dasharray="5,4"/>
+    <line x1="91" y1="790" x2="178" y2="760" stroke="#1890ff" stroke-width="1.8" stroke-dasharray="5,4"/>
+    <g><title>同 taskId 重发 → 执行器识别 input-required → Command(resume) 同一 thread 断点续跑（a2a_langgraph.py:124）；重启后仍可续（AC-14 e2e）</title>
+      <rect x="180" y="756" width="160" height="44" rx="8" fill="#f0f6ff" stroke="#1890ff"/>
+      <text x="260" y="774" font-size="10.5" text-anchor="middle" fill="#26313d">C4 同 taskId 重发 → resume</text>
+      <text x="260" y="788" font-size="8.5" text-anchor="middle" fill="#8a97a5">a2a_langgraph.py:124</text></g>
+    <path d="M 340 764 L 420 764 L 420 294" fill="none" stroke="#1890ff" stroke-width="1.8" stroke-dasharray="5,4" marker-end="url(#ab)"/>
+    <text x="426" y="540" font-size="9" fill="#1890ff">resume 回 A4 从断点续跑</text>
+  </svg>
+  <div class="note">观察：A3 的"验签"发生在<b>每一次缓存未命中的委托</b>；A8 的摘要回写让下一轮 A2 组装出带摘要的 history——"它多少钱"这类指代因此在第 7 轮仍能解析到第 1 轮的 SKU（tests/test_history_injection.py e2e 实测）。</div>
+
+  <!-- 场景 B -->
+  <h2 class="b">场景 B · 跨域写链（Saga 补偿）——"取消订单 SO-2001 给我退款"</h2>
+  <svg viewBox="0 0 940 628" width="100%" xmlns="http://www.w3.org/2000/svg" style="background:#fbfcfd;border:1px solid #e6ebf0;border-radius:12px">
+    <defs>
+      <marker id="bg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#07b464"/></marker>
+      <marker id="br" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#e64340"/></marker>
+    </defs>
+    <rect x="16"  y="40" width="150" height="576" fill="#f6f8fa" stroke="#e6ebf0"/>
+    <rect x="170" y="40" width="180" height="576" fill="#fbfcfd" stroke="#e6ebf0"/>
+    <rect x="354" y="40" width="200" height="576" fill="#fffdf6" stroke="#e6ebf0"/>
+    <rect x="558" y="40" width="200" height="576" fill="#f6f8fa" stroke="#e6ebf0"/>
+    <rect x="762" y="40" width="164" height="576" fill="#f0f6ff" stroke="#e6ebf0"/>
+    <text x="91"  y="28" font-size="11.5" text-anchor="middle" fill="#26313d">客户 / 坐席（人）</text>
+    <text x="260" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">console :8307</text>
+    <text x="454" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">编排 :8300</text>
+    <text x="658" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">域 Agent</text>
+    <text x="844" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">securityd · 存储</text>
+
+    <g><title>B1 客户一句话含两个写动作（customer.html）</title>
+      <rect x="26" y="66" width="130" height="44" rx="8" fill="#fff" stroke="#c9d2da"/>
+      <text x="91" y="84" font-size="10.5" text-anchor="middle" fill="#26313d">B1 取消订单+退款</text>
+      <text x="91" y="98" font-size="8.5" text-anchor="middle" fill="#8a97a5">SO-2001</text></g>
+    <g><title>B2 落库 + delegate（同 A2/A3，含验签）</title>
+      <rect x="180" y="66" width="160" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="260" y="84" font-size="10.5" text-anchor="middle" fill="#26313d">B2 落库 + 委托</text>
+      <text x="260" y="98" font-size="8.5" text-anchor="middle" fill="#8a97a5">同 A2/A3（含验签）</text></g>
+    <g><title>B3 route 命中 cancel_refund：mode=serial，链序[订单→财务]；SAGA_CHAINS 注册补偿（route_table.py:38 · :37）</title>
+      <rect x="366" y="126" width="176" height="44" rx="8" fill="#fff8e6" stroke="#faad14"/>
+      <text x="454" y="144" font-size="10.5" text-anchor="middle" fill="#26313d">B3 route：serial 写链</text>
+      <text x="454" y="158" font-size="8.5" text-anchor="middle" fill="#8a97a5">route_table.py:38/:37</text></g>
+    <g><title>B4 订单域 order.cancel，biz_key=context+action+target 幂等，返回 compensation 语义（domains/order/tools.py）</title>
+      <rect x="570" y="188" width="176" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="658" y="206" font-size="10.5" text-anchor="middle" fill="#26313d">B4 ①订单 order.cancel（幂等）</text>
+      <text x="658" y="220" font-size="8.5" text-anchor="middle" fill="#8a97a5">domains/order/tools.py</text></g>
+    <g><title>B5 advance 收齐一跳再发下一跳（graph.py:756 _advance_serial）</title>
+      <rect x="366" y="250" width="176" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="454" y="268" font-size="10.5" text-anchor="middle" fill="#26313d">B5 发下一跳</text>
+      <text x="454" y="282" font-size="8.5" text-anchor="middle" fill="#8a97a5">graph.py:756</text></g>
+    <g><title>B6 财务域 refund.settle——e2e 可注入 chaos=finance_settle_fail 模拟失败（domains/finance/tools.py）</title>
+      <rect x="570" y="312" width="176" height="44" rx="8" fill="#fff1f0" stroke="#e64340"/>
+      <text x="658" y="330" font-size="10.5" text-anchor="middle" fill="#26313d">B6 ②财务 refund.settle ✕（注入）</text>
+      <text x="658" y="344" font-size="8.5" text-anchor="middle" fill="#8a97a5">domains/finance/tools.py</text></g>
+    <g><title>B7 saga_compensate 按 completed_writes 逆序执行补偿：恢复订单，biz_key 幂等，无悬挂（graph.py:797）</title>
+      <rect x="366" y="374" width="176" height="44" rx="8" fill="#fff1f0" stroke="#e64340"/>
+      <text x="454" y="392" font-size="10.5" text-anchor="middle" fill="#26313d">B7 Saga 逆序补偿恢复订单</text>
+      <text x="454" y="406" font-size="8.5" text-anchor="middle" fill="#8a97a5">graph.py:797</text></g>
+    <g><title>B8 synthesize"已全部回滚"→ deliver → 回 console（graph.py:1099）</title>
+      <rect x="366" y="436" width="176" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="454" y="454" font-size="10.5" text-anchor="middle" fill="#26313d">B8 合成回滚口径</text>
+      <text x="454" y="468" font-size="8.5" text-anchor="middle" fill="#8a97a5">graph.py:1099</text></g>
+    <g><title>B9 客户收到"本次跨域变更已全部回滚，Saga 补偿成功，无残留状态。"</title>
+      <rect x="26" y="498" width="130" height="44" rx="8" fill="#fff" stroke="#c9d2da"/>
+      <text x="91" y="516" font-size="10.5" text-anchor="middle" fill="#26313d">B9 回滚告知</text>
+      <text x="91" y="530" font-size="8.5" text-anchor="middle" fill="#8a97a5">无悬挂状态</text></g>
+    <g><title>横切：saga.*/refund.* 全程审计；补偿失败升级人工 + 告警；审批阈值分支见下表</title>
+      <rect x="772" y="188" width="144" height="106" rx="8" fill="#e8f3ff" stroke="#1890ff" stroke-dasharray="4,3"/>
+      <text x="844" y="208" font-size="10" text-anchor="middle" fill="#26313d">横切</text>
+      <text x="844" y="224" font-size="8.5" text-anchor="middle" fill="#8a97a5">saga.*/refund.* 审计</text>
+      <text x="844" y="237" font-size="8.5" text-anchor="middle" fill="#8a97a5">补偿失败 → 人工升级</text>
+      <text x="844" y="250" font-size="8.5" text-anchor="middle" fill="#8a97a5">写链内不交互确认</text>
+      <text x="844" y="263" font-size="8.5" text-anchor="middle" fill="#8a97a5">幂等+补偿兜底</text>
+      <text x="844" y="276" font-size="8.5" text-anchor="middle" fill="#8a97a5">（取舍见 tour 踩坑表）</text></g>
+    <!-- 箭头 -->
+    <line x1="91" y1="88" x2="178" y2="84" stroke="#07b464" stroke-width="2" marker-end="url(#bg)"/>
+    <line x1="340" y1="88" x2="364" y2="126" stroke="#07b464" stroke-width="2" marker-end="url(#bg)"/>
+    <line x1="454" y1="170" x2="568" y2="200" stroke="#07b464" stroke-width="2" marker-end="url(#bg)"/>
+    <text x="470" y="192" font-size="9" fill="#8a97a5">①</text>
+    <path d="M 570 210 L 480 210 L 480 250" fill="none" stroke="#07b464" stroke-width="2" marker-end="url(#bg)"/>
+    <line x1="542" y1="272" x2="568" y2="320" stroke="#07b464" stroke-width="2" marker-end="url(#bg)"/>
+    <text x="470" y="296" font-size="9" fill="#8a97a5">②</text>
+    <path d="M 570 334 L 480 334 L 480 374" fill="none" stroke="#e64340" stroke-width="2" marker-end="url(#br)"/>
+    <text x="486" y="360" font-size="9" fill="#e64340">失败</text>
+    <line x1="454" y1="418" x2="454" y2="436" stroke="#e64340" stroke-width="2" marker-end="url(#br)"/>
+    <path d="M 366 458 L 300 458 L 300 498 L 158 516" fill="none" stroke="#07b464" stroke-width="2" marker-end="url(#bg)"/>
+  </svg>
+  <table class="t">
+    <tr><th>同场景的审批分支（金额触发）</th><th>行为</th><th>出处</th></tr>
+    <tr><td>退款/改价/开票超阈值（默认 500/500/1000 元）</td><td>返回 <code>pending_approval</code> + 确认单，审批通过带 approval_id 重调</td><td><b>shared/approvals.py:152</b> create · <b>:281</b> approve</td></tr>
+    <tr><td>超 5 倍阈值</td><td>双人复核（finance + supervisor/admin，申请人不可自批）</td><td>config approval_dual_threshold_multiplier · <b>approvals.py:281</b></td></tr>
+    <tr><td>写操作确认</td><td>两阶段：payload hash + 一次性 token（TTL 600s），consume 绑定申请人一单一次</td><td><b>shared/confirmations.py:71</b> create / <b>:128</b> consume</td></tr>
+  </table>
+
+  <!-- 场景 C -->
+  <h2 class="c">场景 C · 转人工闭环——三触发 → 接管 → 回流</h2>
+  <svg viewBox="0 0 940 700" width="100%" xmlns="http://www.w3.org/2000/svg" style="background:#fbfcfd;border:1px solid #e6ebf0;border-radius:12px">
+    <defs>
+      <marker id="cg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#07b464"/></marker>
+      <marker id="cr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#e64340"/></marker>
+      <marker id="cb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#1890ff"/></marker>
+    </defs>
+    <rect x="16"  y="40" width="150" height="648" fill="#f6f8fa" stroke="#e6ebf0"/>
+    <rect x="170" y="40" width="180" height="648" fill="#fbfcfd" stroke="#e6ebf0"/>
+    <rect x="354" y="40" width="200" height="648" fill="#fffdf6" stroke="#e6ebf0"/>
+    <rect x="558" y="40" width="200" height="648" fill="#f6f8fa" stroke="#e6ebf0"/>
+    <rect x="762" y="40" width="164" height="648" fill="#f0f6ff" stroke="#e6ebf0"/>
+    <text x="91"  y="28" font-size="11.5" text-anchor="middle" fill="#26313d">客户 / 坐席（人）</text>
+    <text x="260" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">console :8307</text>
+    <text x="454" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">编排 :8300</text>
+    <text x="658" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">域 Agent</text>
+    <text x="844" y="28" font-size="11.5" text-anchor="middle" fill="#26313d">securityd · 存储</text>
+
+    <g><title>D1 触发三选一：明确要求 / 连续碰壁≥2 / 高风险词（投诉/纠纷）（customer.html · console 落库 wall_count）</title>
+      <rect x="26" y="66" width="130" height="44" rx="8" fill="#fff" stroke="#e64340"/>
+      <text x="91" y="84" font-size="10.5" text-anchor="middle" fill="#26313d">D1 触发转人工</text>
+      <text x="91" y="98" font-size="8.5" text-anchor="middle" fill="#8a97a5">要求/碰壁2/高风险</text></g>
+    <g><title>D2 落库 + delegate（碰壁计数经 metadata 续传）</title>
+      <rect x="180" y="66" width="160" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="260" y="84" font-size="10.5" text-anchor="middle" fill="#26313d">D2 落库 + 委托</text>
+      <text x="260" y="98" font-size="8.5" text-anchor="middle" fill="#8a97a5">wall_count 续传</text></g>
+    <g><title>D3 after_route 三触发优先于一切业务路由 → handoff 节点组装交接包：context_id/trace_id/reasons/domain_artifacts/decision_log/ai_draft/user_text/history(真实近 6 轮)（graph.py:525 · :1246）</title>
+      <rect x="366" y="126" width="176" height="56" rx="8" fill="#fff1f0" stroke="#e64340"/>
+      <text x="454" y="146" font-size="10.5" text-anchor="middle" fill="#26313d">D3 handoff 交接包（优先出口）</text>
+      <text x="454" y="160" font-size="8.5" text-anchor="middle" fill="#8a97a5">graph.py:525/:1246 · 8 字段+6 轮</text></g>
+    <g><title>D4 新 Task 同 contextId 委托 console 的 handoff.accept——人工坐席也是一个 A2A Agent（a2a_client.py:112）</title>
+      <rect x="180" y="200" width="160" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="260" y="218" font-size="10.5" text-anchor="middle" fill="#26313d">D4 委托 handoff.accept</text>
+      <text x="260" y="232" font-size="8.5" text-anchor="middle" fill="#8a97a5">HumanDeskExecutor server.py:116</text></g>
+    <g><title>D5 入 handoff_queue（status=pending），会话置 pending_handoff，WS 推工作台徽标（db.py:502）</title>
+      <rect x="180" y="262" width="160" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="260" y="280" font-size="10.5" text-anchor="middle" fill="#26313d">D5 入队 + WS 推工作台</text>
+      <text x="260" y="294" font-size="8.5" text-anchor="middle" fill="#8a97a5">db.py:502 · server.py:199</text></g>
+    <g><title>D6 坐席接管：queue.status=taken、mode=human、系统消息扇出两端；澄清挂起中的会话不可接管（409）（server.py:929 · db.py:536）</title>
+      <rect x="180" y="324" width="160" height="44" rx="8" fill="#f4fbf7" stroke="#07b464"/>
+      <text x="260" y="342" font-size="10.5" text-anchor="middle" fill="#26313d">D6 接管 api_takeover</text>
+      <text x="260" y="356" font-size="8.5" text-anchor="middle" fill="#8a97a5">server.py:929 · db.py:536</text></g>
+    <g><title>D7 坐席侧 WS 双向聊天 + 右侧只读工具面板（查用户/商品/订单…，脱敏直查，逐次审计）（server.py:2159 · tools.py:123）</title>
+      <rect x="26" y="386" width="130" height="56" rx="8" fill="#fff" stroke="#07b464"/>
+      <text x="91" y="404" font-size="10.5" text-anchor="middle" fill="#26313d">D7 人工接待</text>
+      <text x="91" y="418" font-size="8.5" text-anchor="middle" fill="#8a97a5">WS 双向 + 工具面板</text>
+      <text x="91" y="431" font-size="8.5" text-anchor="middle" fill="#8a97a5">坐席可问 AI 助手</text></g>
+    <g><title>D8 交还 AI：mode=ai，系统消息"已交回 AI 助手继续服务。"（server.py:959）</title>
+      <rect x="180" y="460" width="160" height="44" rx="8" fill="#f0f6ff" stroke="#1890ff"/>
+      <text x="260" y="478" font-size="10.5" text-anchor="middle" fill="#26313d">D8 交还 AI api_return</text>
+      <text x="260" y="492" font-size="8.5" text-anchor="middle" fill="#8a97a5">server.py:959</text></g>
+    <g><title>D9 下一句同 contextId 重新走主链（A4），AI 与人工答复在同一条消息流接力（蓝虚线回流）</title>
+      <rect x="366" y="522" width="176" height="44" rx="8" fill="#fffdf6" stroke="#1890ff" stroke-dasharray="5,4"/>
+      <text x="454" y="540" font-size="10.5" text-anchor="middle" fill="#26313d">D9 回流主链（同 contextId）</text>
+      <text x="454" y="554" font-size="8.5" text-anchor="middle" fill="#8a97a5">→ A4 intake→…</text></g>
+    <g><title>横切：handoff.accept/tool.call/接管交还全部审计；交接包 reasons 供工作台展示</title>
+      <rect x="772" y="262" width="144" height="106" rx="8" fill="#e8f3ff" stroke="#1890ff" stroke-dasharray="4,3"/>
+      <text x="844" y="282" font-size="10" text-anchor="middle" fill="#26313d">横切</text>
+      <text x="844" y="298" font-size="8.5" text-anchor="middle" fill="#8a97a5">handoff.accept 审计</text>
+      <text x="844" y="311" font-size="8.5" text-anchor="middle" fill="#8a97a5">tool.call 逐次审计</text>
+      <text x="844" y="324" font-size="8.5" text-anchor="middle" fill="#8a97a5">（脱敏入审计）</text>
+      <text x="844" y="337" font-size="8.5" text-anchor="middle" fill="#8a97a5">workbench trace 页签</text>
+      <text x="844" y="350" font-size="8.5" text-anchor="middle" fill="#8a97a5">可看 runs+steps</text></g>
+    <!-- 箭头 -->
+    <line x1="91" y1="88" x2="178" y2="84" stroke="#07b464" stroke-width="2" marker-end="url(#cg)"/>
+    <line x1="340" y1="88" x2="364" y2="126" stroke="#07b464" stroke-width="2" marker-end="url(#cg)"/>
+    <path d="M 366 154 L 300 154 L 300 200" fill="none" stroke="#e64340" stroke-width="2" marker-end="url(#cr)"/>
+    <text x="308" y="182" font-size="9" fill="#e64340">A2A 委托人工坐席 Agent</text>
+    <line x1="260" y1="244" x2="260" y2="262" stroke="#07b464" stroke-width="2" marker-end="url(#cg)"/>
+    <line x1="260" y1="306" x2="260" y2="324" stroke="#07b464" stroke-width="2" marker-end="url(#cg)"/>
+    <path d="M 180 346 L 91 346 L 91 386" fill="none" stroke="#07b464" stroke-width="2" marker-end="url(#cg)"/>
+    <text x="100" y="376" font-size="9" fill="#8a97a5">坐席视角</text>
+    <path d="M 158 414 L 300 414 L 300 460" fill="none" stroke="#07b464" stroke-width="2" marker-end="url(#cg)"/>
+    <path d="M 340 482 L 420 482 L 420 522" fill="none" stroke="#1890ff" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#cb)"/>
+    <line x1="366" y1="544" x2="150" y2="560" stroke="#1890ff" stroke-width="1.6" stroke-dasharray="5,4"/>
+    <text x="170" y="586" font-size="9" fill="#1890ff">回流 = 下一句回到场景 A 的 A4（AI 重新主答）</text>
+  </svg>
+
+  <h2>三场景共用的跨进程约定（读图前提）</h2>
+  <table class="t">
+    <tr><th>约定</th><th>内容</th><th>出处</th></tr>
+    <tr><td>会话锚点</td><td>console 会话 id = A2A <b>contextId</b>；每轮消息 = 新 Task；转人工/澄清都在同 contextId 下关联</td><td><b>console/server.py:586</b> delegate(context_id=cid)</td></tr>
+    <tr><td>信任建立</td><td>每次委托先拉 <code>/.well-known/agent-card.json</code> → <b>ES256 JWS 验签</b> → TTL 300s 缓存；验签失败拒绝委托并审计</td><td><b>shared/a2a_client.py:57</b> _acquire_client · <b>card_signing.py:167</b></td></tr>
+    <tr><td>身份透传</td><td>调用方 JWT（on-behalf-of）随 httpx 头转发；tenant/actor 只认 token claim，不接受 metadata 自称</td><td><b>shared/auth.py:419</b> client_headers · <b>a2a_langgraph.py:124</b></td></tr>
+    <tr><td>跨 Task 会话态</td><td>wall_count / history（摘要+近 6 轮）放渠道层，每轮随请求级 metadata 进图，产物回写</td><td><b>console/server.py:555</b> · <b>graph.py:362</b> intake</td></tr>
+    <tr><td>可观测</td><td>trace_id 审计与 OTel 同号；span 按服务落 JSONL，<code>GET /api/traces/{trace_id}</code> 重建调用树</td><td><b>shared/tracing.py:228</b> · <b>console/server.py:1983</b></td></tr>
+  </table>
+
+  <div class="note" style="margin-top:16px">姊妹页：<a class="x" href="flow.html">流程图（单图看全部分支）</a> ｜ <a class="x" href="journey.html">旅程页（j0–j10/h1–h6 逐步观察点）</a> ｜ <a class="x" href="tour.html">← 总览</a></div>
+</body>
+</html>

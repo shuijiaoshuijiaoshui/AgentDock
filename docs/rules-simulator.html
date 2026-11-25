@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentDock · 路由表模拟器</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:14px; line-height:1.7; }
+  h2 { font-size:16px; margin:24px 0 10px; padding-left:10px; border-left:4px solid var(--brand); }
+  .ai-note { background:#fffbe6; border:1px solid #f1e3ab; border-radius:10px; padding:9px 14px; font-size:12px; color:#8a6d1a; margin-bottom:16px; line-height:1.6; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:10px 0; }
+  .card h3 { font-size:13.5px; margin-bottom:8px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
+  .row label { font-size:12.5px; color:var(--muted); }
+  select, input[type=text], input[type=number] { border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px; font-family:inherit; background:#fff; color:var(--text); }
+  input[type=text] { width:320px; max-width:100%; }
+  input[type=number] { width:90px; }
+  button.b { border:0; border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; background:var(--brand); color:#fff; }
+  button.b.gray { background:#8a97a5; }
+  .out { margin-top:10px; border-radius:8px; padding:10px 12px; font-size:13px; line-height:1.7; background:#f6f8fa; }
+  .out b.go { color:var(--brand); } .out b.stop { color:var(--sec); } .out b.fast { color:var(--warn); }
+  .out .plan { font-family:Consolas,monospace; font-size:12px; color:#1890ff; }
+  table.t { width:100%; border-collapse:collapse; margin:8px 0; background:#fff; border-radius:10px; overflow:hidden; }
+  table.t th, table.t td { border:1px solid var(--line); padding:6px 10px; font-size:12px; text-align:left; }
+  table.t th { background:#eaf4ff; }
+  .pass { color:var(--brand); font-weight:700; } .fail { color:var(--sec); font-weight:700; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="tour.html">← 返回总览</a> ｜ 附录 · 读懂区（对应模块 <a class="x" href="modules/orchestrator.html">orchestrator</a> · 全出口图 <a class="x" href="flow.html">flow.html</a>）</div>
+  <h1>🎛️ 路由表模拟器</h1>
+  <div class="sub">把"零 LLM 参与路由"的判定逻辑逐条跑给你看：同一句话为什么永远走同一条链（AC-21），碰壁两次为什么会当场转人工，M4 的指代继承（"它多少钱"）是怎么从历史补槽位的。</div>
+  <div class="ai-note">⚠ 本页由 AI 逐行翻译自 <b>orchestrator/route_table.py</b>（ROUTE_TABLE/route_plan/LOW_CONFIDENCE_THRESHOLD/SAGA_CHAINS）与 <b>orchestrator/graph.py</b>（_RISK_RE/after_route/after_nomatch/_rule_understand_base/_history_carry_slots）（@2026-11-07），未经自动比对；正则均为字面中文交替（无 \w/\b），两语言语义一致。M4 的滚动摘要生成与 OTel 依赖运行环境，不在模拟器范围。</div>
+
+  <div class="card"><h3>① fake 意图理解（_rule_understand_base + _history_carry_slots · LLM_PROVIDER=fake 规则分支）</h3>
+    <div class="row"><label>客户话术：</label><input type="text" id="ut" value="查询 SKU-A001 的商品详情"><button class="b" id="u-go">理解</button></div>
+    <div class="row">
+      <label><input type="checkbox" id="u-hist"> 模拟历史（勾选=最近对话提过）：</label>
+      <label>SKU</label><input type="text" id="u-hsku" value="SKU-A002" style="width:110px">
+      <label>订单</label><input type="text" id="u-hso" value="" style="width:90px" placeholder="SO-2001">
+      <label>工单</label><input type="text" id="u-htk" value="" style="width:90px" placeholder="TK-1001">
+    </div>
+    <div class="out" id="u-out">输入话术点「理解」。试试勾选历史后输入「它多少钱」——sku 会从历史继承（graph.py:91 _history_carry_slots）。</div>
+  </div>
+
+  <div class="card"><h3>② 路由判定（route_plan + after_route + after_nomatch）</h3>
+    <div class="row">
+      <label>意图：</label>
+      <select id="r-intent">
+        <option value="product_lookup">product_lookup</option>
+        <option value="product_search">product_search</option>
+        <option value="product_compare">product_compare</option>
+        <option value="promo_evaluate">promo_evaluate</option>
+        <option value="aftersale_eligibility">aftersale_eligibility</option>
+        <option value="aftersale_reason">aftersale_reason</option>
+        <option value="ticket_create">ticket_create</option>
+        <option value="ticket_query">ticket_query</option>
+        <option value="policy_qa">policy_qa</option>
+        <option value="order_query">order_query</option>
+        <option value="fulfill_track">fulfill_track</option>
+        <option value="fulfill_atp">fulfill_atp</option>
+        <option value="order_amend">order_amend（serial）</option>
+        <option value="order_price_amend">order_price_amend</option>
+        <option value="refund_status">refund_status（serial）</option>
+        <option value="refund_settle">refund_settle</option>
+        <option value="invoice_issue">invoice_issue</option>
+        <option value="invoice_status">invoice_status</option>
+        <option value="cancel_refund">cancel_refund（serial·Saga）</option>
+        <option value="promo_arbitrate">promo_arbitrate（arbitrate）</option>
+        <option value="warranty_check">warranty_check（parallel）</option>
+        <option value="customer_profile">customer_profile</option>
+        <option value="credit_query">credit_query</option>
+        <option value="reconciliation_query">reconciliation_query</option>
+        <option value="complaint_list">complaint_list</option>
+        <option value="greet">greet</option>
+        <option value="request_human">request_human</option>
+        <option value="unknown">unknown</option>
+      </select>
+      <label>confidence：</label><input type="number" id="r-conf" value="0.9" min="0" max="1" step="0.05">
+      <label>碰壁计数：</label><input type="number" id="r-wall" value="0" min="0" step="1">
+      <label><input type="checkbox" id="r-risk"> 高风险词命中</label>
+      <label>话术（可空，用于风险词检测）：</label><input type="text" id="r-text" placeholder="如：我要投诉">
+    </div>
+    <div class="row"><button class="b" id="r-go">判定出口</button></div>
+    <div class="out" id="r-out">设置参数点「判定出口」。serial/arbitrate 的域顺序与依赖见路由表，advance 会按 mode 分层调度（graph.py:666）。</div>
+  </div>
+
+  <div class="card"><h3>③ 转译自测（对照 tests/test_route_table.py 与 fake 分类/历史继承用例）</h3>
+    <div class="row"><button class="b" id="t-go">跑自测断言</button><button class="b gray" id="t-clear">清空</button></div>
+    <div id="t-out"></div>
+  </div>
+
+  <h2>读法</h2>
+  <div class="note">
+    判定顺序与源码一致：<b>after_route</b> 先看三触发（request_human / 碰壁≥2 / 风险词）→ 再查路由表（未命中 nomatch、greet smalltalk、其余 advance 按 mode 执行）；<b>nomatch 之后</b>若碰壁累计 ≥2 由 after_nomatch 当场改道 handoff。
+    serial（改地址：履约→订单；退款三跳：售后→履约→财务；Saga：订单→财务）与 arbitrate（promo_arbitrate：订单→商品∥财务，实付认财务）是 advance 按 Plan.mode 分层调度，模拟器里展示的是 Plan 本身。澄清（confidence&lt;0.6 且未澄清过）发生在 understand 节点，先 interrupt 等回填——模拟器里直接改 confidence 即可模拟"澄清后变确定"。
+  </div>
+  <div class="sub" style="margin-top:18px">最后对照代码校验：<b>2026-11-07</b> · 基于 orchestrator/route_table.py(103行) · orchestrator/graph.py(1378行) · tests/test_route_table.py ｜ 防腐 = 改代码后让 AI 重读重生成（含本页转译与自测断言）。</div>
+</div>
+
+<script>
+// ===== 由 AI 逐行翻译自 orchestrator/route_table.py 与 orchestrator/graph.py（@2026-11-07）=====
+var ROUTE_TABLE = {
+  product_lookup:        { domains: ["merchandising"], mode: "single" },
+  product_search:        { domains: ["merchandising"], mode: "single" },
+  product_compare:       { domains: ["merchandising"], mode: "single" },
+  promo_evaluate:        { domains: ["merchandising"], mode: "single" },
+  aftersale_eligibility: { domains: ["aftersale"], mode: "single" },
+  aftersale_reason:      { domains: ["aftersale"], mode: "single" },
+  ticket_create:         { domains: ["aftersale"], mode: "single" },
+  ticket_query:          { domains: ["aftersale"], mode: "single" },
+  policy_qa:             { domains: ["policy"], mode: "single" },
+  order_query:           { domains: ["order"], mode: "single" },
+  fulfill_track:         { domains: ["fulfillment"], mode: "single" },
+  fulfill_atp:           { domains: ["fulfillment"], mode: "single" },
+  order_amend:           { domains: ["fulfillment", "order"], mode: "serial" },
+  order_price_amend:     { domains: ["order"], mode: "single" },
+  refund_status:         { domains: ["aftersale", "fulfillment", "finance"], mode: "serial" },
+  invoice_issue:         { domains: ["finance"], mode: "single" },
+  invoice_status:        { domains: ["finance"], mode: "single" },
+  refund_settle:         { domains: ["finance"], mode: "single" },
+  cancel_refund:         { domains: ["order", "finance"], mode: "serial" },
+  promo_arbitrate:       { domains: ["order", "merchandising", "finance"], mode: "arbitrate", deps: { merchandising: ["order"] } },
+  warranty_check:        { domains: ["aftersale", "policy", "merchandising"], mode: "parallel" },
+  customer_profile:      { domains: ["customer"], mode: "single" },
+  credit_query:          { domains: ["customer"], mode: "single" },
+  reconciliation_query:  { domains: ["customer"], mode: "single" },
+  complaint_list:        { domains: ["customer"], mode: "single" },
+  greet:                 { domains: [], mode: "smalltalk" },
+  request_human:         { domains: ["humandesk"], mode: "handoff" }
+};
+var LOW_CONFIDENCE_THRESHOLD = 0.6;
+var RISK_RE = /投诉|纠纷|举报|315|工商|曝光|律师函|法院|差评到底/;   // graph.py:73 _RISK_RE（字面交替，语义一致）
+var PRONOUN_RE = /它|这个|那个|这款|这件|该商品|此商品|上述|刚才|前面/; // graph.py:89 _HISTORY_PRONOUN_RE
+
+// route_table.py:86 route_plan
+function routePlan(intent, slots, confidence) {
+  var entry = ROUTE_TABLE[intent];
+  if (!entry) return null;
+  if (!entry.domains.length) return { intent: intent, domains: [], mode: "smalltalk" };
+  if (confidence < LOW_CONFIDENCE_THRESHOLD) return null;
+  return { intent: intent, domains: entry.domains.slice(), mode: entry.mode, deps: entry.deps || {} };
+}
+// graph.py:525 after_route（转换成对"是否转人工/出口"的判定）
+function afterRoute(st) {
+  if (st.intent === "request_human" || st.risk_flag || st.wall >= 2) return "handoff";
+  var plan = routePlan(st.intent, st.slots, st.confidence);
+  if (!plan) return "nomatch";
+  if (plan.mode === "smalltalk") return "smalltalk";
+  return "advance";
+}
+// graph.py:1241 after_nomatch
+function afterNomatch(wall) { return wall >= 2 ? "handoff" : "deliver"; }
+
+// graph.py:96 _rule_understand_base（fake 分类主体；翻译保序）
+function ruleUnderstandBase(t) {
+  t = t.trim();
+  if (/你好|您好|hi|hello|在吗/i.test(t)) return { intent: "greet", slots: {}, confidence: 0.95, top2: ["greet", "unknown"] };
+  if (/转人工|人工客服|找人工|真人客服|人工服务/.test(t)) return { intent: "request_human", slots: {}, confidence: 0.95, top2: ["request_human", "unknown"] };
+  var skus = (t.match(/SKU[-A-Za-z0-9]*/g) || []).map(function (s) { return s.toUpperCase(); });
+  function faultOf(tt) { return ["进水","失灵","闪烁","故障","坏了"].find(function (w) { return tt.indexOf(w) >= 0; }) || "故障"; }
+  // warranty_check：坏+保修 → 三域并行
+  if (["坏了","故障","失灵","不出声","闪烁","进水"].some(function (w) { return t.indexOf(w) >= 0; }) && t.indexOf("保修") >= 0)
+    return { intent: "warranty_check", slots: { sku: skus[0] || "", fault_type: faultOf(t), query: t }, confidence: 0.9, top2: ["warranty_check", "aftersale_eligibility"] };
+  var tm = t.match(/TK-\d+/i);
+  if (tm && !["建","报修","申请"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "ticket_query", slots: { ticket_no: tm[0].toUpperCase() }, confidence: 0.9, top2: ["ticket_query", "ticket_create"] };
+  if (t.indexOf("工单") >= 0 && ["建","报修","申请","创建"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "ticket_create", slots: { sku: skus[0] || "", fault_type: faultOf(t) }, confidence: 0.9, top2: ["ticket_create", "aftersale_eligibility"] };
+  if (["责任","谁的","谁承担"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "aftersale_reason", slots: { fault_type: faultOf(t) }, confidence: 0.9, top2: ["aftersale_reason", "aftersale_eligibility"] };
+  if (t.indexOf("取消订单") >= 0 || (t.indexOf("取消") >= 0 && (t.indexOf("退款") >= 0 || t.indexOf("退钱") >= 0)))
+    return { intent: "cancel_refund", slots: { order_no: (t.match(/SO-\d+/i) || [""])[0].toUpperCase() }, confidence: 0.9, top2: ["cancel_refund", "order_query"] };
+  var om0 = t.match(/SO-\d+/i);
+  if (["改价","调价","降价","改价格"].some(function (w) { return t.indexOf(w) >= 0; })) {
+    var pm = t.match(/(?:改价|调价|降价|改价格)[^\d]{0,8}(\d+(?:\.\d+)?)/);
+    if (om0 && pm) return { intent: "order_price_amend", slots: { order_no: om0[0].toUpperCase(), new_price: parseFloat(pm[1]) }, confidence: 0.9, top2: ["order_price_amend", "order_amend"] };
+  }
+  if (["改地址","修改地址","改收货","换个地址"].some(function (w) { return t.indexOf(w) >= 0; })) {
+    var am = t.match(/(?:改到|改为|改成)\s*([^\s，。]+)/);
+    return { intent: "order_amend", slots: { order_no: om0 ? om0[0].toUpperCase() : "", address: am ? am[1] : "" }, confidence: 0.9, top2: ["order_amend", "order_query"] };
+  }
+  if (["额度","授信","账期","信用"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "credit_query", slots: {}, confidence: 0.9, top2: ["credit_query", "customer_profile"] };
+  if (t.indexOf("对账") >= 0) {
+    var pm2 = t.match(/\d{4}-\d{2}/);
+    return { intent: "reconciliation_query", slots: { period: pm2 ? pm2[0] : "" }, confidence: 0.9, top2: ["reconciliation_query", "customer_profile"] };
+  }
+  if (["资料","等级","折扣","客户编码"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "customer_profile", slots: {}, confidence: 0.9, top2: ["customer_profile", "credit_query"] };
+  if (["开票","发票"].some(function (w) { return t.indexOf(w) >= 0; }) && ["进度","状态","记录","到哪","查询","查一下"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "invoice_status", slots: { order_no: om0 ? om0[0].toUpperCase() : "" }, confidence: 0.9, top2: ["invoice_status", "invoice_issue"] };
+  if (t.indexOf("开票") >= 0 || t.indexOf("发票") >= 0)
+    return { intent: "invoice_issue", slots: { order_no: om0 ? om0[0].toUpperCase() : "", title: "默认抬头" }, confidence: 0.9, top2: ["invoice_issue", "refund_status"] };
+  if ((t.indexOf("退款") >= 0 || t.indexOf("退钱") >= 0) && ["执行","发起","办理","退钱","并"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "refund_settle", slots: { order_no: om0 ? om0[0].toUpperCase() : "" }, confidence: 0.9, top2: ["refund_settle", "refund_status"] };
+  if (t.indexOf("退款") >= 0 || t.indexOf("退钱") >= 0)
+    return { intent: "refund_status", slots: { order_no: om0 ? om0[0].toUpperCase() : "", sku: skus[0] || "" }, confidence: 0.9, top2: ["refund_status", "aftersale_eligibility"] };
+  var om = t.match(/SO-\d+/i);
+  // 实付仲裁优先：含"实付/实际付"是财务口径问题
+  if (t.indexOf("实付") >= 0 || (t.indexOf("实际") >= 0 && (t.indexOf("付") >= 0 || t.indexOf("价格") >= 0 || t.indexOf("多少钱") >= 0)))
+    return { intent: "promo_arbitrate", slots: { order_no: om ? om[0].toUpperCase() : "" }, confidence: 0.9, top2: ["promo_arbitrate", "promo_evaluate"] };
+  if (["物流","履约","到货","发货","配送","快递","运单","签收","到哪","什么时候到","多久到","几天到","送到"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "fulfill_track", slots: { order_no: om ? om[0].toUpperCase() : "" }, confidence: 0.9, top2: ["fulfill_track", "order_query"] };
+  if (skus.length && ["有货","现货","库存","能发","可售","补货"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "fulfill_atp", slots: { sku: skus[0] }, confidence: 0.9, top2: ["fulfill_atp", "product_lookup"] };
+  if (["订单","下单","我的单","买过"].some(function (w) { return t.indexOf(w) >= 0; }) || om)
+    return { intent: "order_query", slots: { order_no: om ? om[0].toUpperCase() : "" }, confidence: 0.9, top2: ["order_query", "fulfill_track"] };
+  var cm = t.match(/CLS-\d+/i);
+  if (["政策","条款","规则","规定"].some(function (w) { return t.indexOf(w) >= 0; }) || cm)
+    return { intent: "policy_qa", slots: { query: t, clause_id: cm ? cm[0].toUpperCase() : "" }, confidence: 0.9, top2: ["policy_qa", "product_search"] };
+  if (["保修","退换","退货资格","能退","能换","资格"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "aftersale_eligibility", slots: { sku: skus[0] || "", order_no: om ? om[0].toUpperCase() : "" }, confidence: 0.9, top2: ["aftersale_eligibility", "policy_qa"] };
+  if ((t.indexOf("对比") >= 0 || t.indexOf("比较") >= 0) && skus.length >= 2)
+    return { intent: "product_compare", slots: { skus: skus }, confidence: 0.9, top2: ["product_compare", "product_lookup"] };
+  if (["优惠","到手","多少钱","价格"].some(function (w) { return t.indexOf(w) >= 0; }))
+    return { intent: "promo_evaluate", slots: { sku: skus[0] || "" }, confidence: 0.9, top2: ["promo_evaluate", "product_lookup"] };
+  if (skus.length) return { intent: "product_lookup", slots: { sku: skus[0] }, confidence: 0.9, top2: ["product_lookup", "promo_evaluate"] };
+  if (["查","找","看看","商品"].some(function (w) { return t.indexOf(w) >= 0; })) {
+    var kw = t.replace(/帮我|查询|看看|找|一下|商品/g, "").trim() || "商品";
+    return { intent: "product_search", slots: { keywords: kw }, confidence: 0.75, top2: ["product_search", "product_lookup"] };
+  }
+  return { intent: "unknown", slots: {}, confidence: 0.3, top2: ["product_search", "product_lookup"] };
+}
+// graph.py:87 rule_understand = base + _history_carry_slots（:91，从新到旧扫 窗口→掉窗轮次→摘要）
+function ruleUnderstand(t, hist) {
+  var u = ruleUnderstandBase(t);
+  if (!hist || !PRONOUN_RE.test(t)) return u;
+  var texts = [];
+  for (var i = hist.length - 1; i >= 0; i--) texts.push(hist[i]);   // 模拟器输入只有一层"最近历史"
+  var found = {};
+  for (var j = 0; j < texts.length && Object.keys(found).length < 3; j++) {
+    var tt = texts[j];
+    if (!found.sku) { var m = tt.match(/SKU[-A-Za-z0-9]*/i); if (m) found.sku = m[0].toUpperCase(); }
+    if (!found.order_no) { var m2 = tt.match(/SO-\d+/i); if (m2) found.order_no = m2[0].toUpperCase(); }
+    if (!found.ticket_no) { var m3 = tt.match(/TK-\d+/i); if (m3) found.ticket_no = m3[0].toUpperCase(); }
+  }
+  for (var k in found) if (k in u.slots && !u.slots[k]) u.slots[k] = found[k];
+  return u;
+}
+
+// ===== 页面交互 =====
+document.getElementById("u-go").onclick = function () {
+  var t = document.getElementById("ut").value;
+  var hist = [];
+  if (document.getElementById("u-hist").checked) {
+    var h = [];
+    if (document.getElementById("u-hsku").value) h.push("客户问：" + document.getElementById("u-hsku").value + " 到手价多少");
+    if (document.getElementById("u-hso").value) h.push("客户问：" + document.getElementById("u-hso").value + " 发货了吗");
+    if (document.getElementById("u-htk").value) h.push("客户问：" + document.getElementById("u-htk").value + " 进度");
+    hist = h;
+  }
+  var u = ruleUnderstand(t, hist);
+  document.getElementById("u-out").innerHTML =
+    "intent = <b class='go'>" + u.intent + "</b> ｜ confidence = " + u.confidence +
+    " ｜ slots = <span class='plan'>" + JSON.stringify(u.slots) + "</span>" +
+    (hist.length && PRONOUN_RE.test(t) ? "<br>（指代词命中：缺的槽位从模拟历史继承——graph.py:91）" : "") +
+    "<br>入口判定（afterRoute，wall=0）：";
+  var exit = afterRoute({ intent: u.intent, slots: u.slots, confidence: u.confidence, wall: 0, risk_flag: RISK_RE.test(t) });
+  document.getElementById("u-out").innerHTML += "<b class='" + (exit === "advance" ? "go" : (exit === "nomatch" || exit === "handoff") ? "stop" : "fast") + "'>" + exit + "</b>";
+};
+
+document.getElementById("r-go").onclick = function () {
+  var intent = document.getElementById("r-intent").value;
+  var conf = parseFloat(document.getElementById("r-conf").value || "0");
+  var wall = parseInt(document.getElementById("r-wall").value || "0", 10);
+  var text = document.getElementById("r-text").value;
+  var risk = document.getElementById("r-risk").checked || (text && RISK_RE.test(text));
+  var plan = routePlan(intent, {}, conf);
+  var exit = afterRoute({ intent: intent, slots: {}, confidence: conf, wall: wall, risk_flag: risk });
+  var why = [];
+  if (intent === "request_human") why.push("用户明确要求转人工");
+  if (risk) why.push("高风险词命中");
+  if (wall >= 2) why.push("碰壁 ≥2");
+  var cls = exit === "advance" ? "go" : (exit === "nomatch" || exit === "handoff") ? "stop" : "fast";
+  var planTxt = exit === "advance"
+    ? "Plan = <span class='plan'>" + JSON.stringify(plan) + "</span><br>advance 按 mode 调度：" +
+      (plan.mode === "single" ? "单域一跳" : plan.mode === "parallel" ? "一层并发 Send" :
+       plan.mode === "serial" ? "逐跳串行，上游完成才发下一跳（上游否决取消下游，arbitrate.py:74）" :
+       "分层 DAG，deps 就绪才发；实付金额以财务为权威（arbitrate.py:107）")
+    : (exit === "nomatch" ? "plan=null → 拒答（wall=" + wall + "，after_nomatch→" + afterNomatch(wall) + "）"
+      : exit === "smalltalk" ? "本地直答，不建 Task" : "转人工：交接包（含真实近 6 轮）→ console");
+  document.getElementById("r-out").innerHTML =
+    "出口 = <b class='" + cls + "'>" + exit + "</b>" +
+    (why.length ? "（" + why.join("；") + "）" : "") + "<br>" + planTxt;
+};
+
+// 自测断言：对照 tests/test_route_table.py + fake 分类/历史继承用例
+var CASES = [
+  ["route_plan(product_lookup,0.9) 走 advance", function () { return afterRoute({ intent: "product_lookup", slots: {}, confidence: 0.9, wall: 0, risk_flag: false }) === "advance"; }],
+  ["同输入 100 次一致（AC-21，抽样 100）", function () {
+      var first = JSON.stringify(routePlan("product_lookup", { sku: "SKU-A001" }, 0.9));
+      for (var i = 0; i < 100; i++) if (JSON.stringify(routePlan("product_lookup", { sku: "SKU-A001" }, 0.9)) !== first) return false;
+      return true; }],
+  ["27 个意图全部在表（unknown/greet 除外）", function () {
+      var n = 0; for (var k in ROUTE_TABLE) n++;
+      return n === 27; }],
+  ["unknown 0.3 → nomatch", function () { return afterRoute({ intent: "unknown", slots: {}, confidence: 0.3, wall: 0, risk_flag: false }) === "nomatch"; }],
+  ["低置信 0.5 → plan=null（澄清/拒答路径）", function () { return routePlan("product_lookup", {}, 0.5) === null; }],
+  ["greet → smalltalk", function () { var p = routePlan("greet", {}, 0.95); return p && p.mode === "smalltalk"; }],
+  ["request_human → handoff（优先）", function () { return afterRoute({ intent: "request_human", slots: {}, confidence: 0.95, wall: 0, risk_flag: false }) === "handoff"; }],
+  ["wall=2 → handoff（碰壁优先于路由）", function () { return afterRoute({ intent: "product_lookup", slots: {}, confidence: 0.9, wall: 2, risk_flag: false }) === "handoff"; }],
+  ["after_nomatch：wall=2 → handoff；wall=1 → deliver", function () { return afterNomatch(2) === "handoff" && afterNomatch(1) === "deliver"; }],
+  ["风险词「我要投诉你们」命中", function () { return RISK_RE.test("我要投诉你们"); }],
+  ["refund_status → 三跳串行（售后→履约→财务）", function () {
+      var p = routePlan("refund_status", {}, 0.9);
+      return p && p.mode === "serial" && p.domains.join(",") === "aftersale,fulfillment,finance"; }],
+  ["cancel_refund → Saga 串行（订单→财务）", function () {
+      var p = routePlan("cancel_refund", {}, 0.9);
+      return p && p.mode === "serial" && p.domains.join(",") === "order,finance"; }],
+  ["promo_arbitrate → 仲裁+依赖（商品等订单）", function () {
+      var p = routePlan("promo_arbitrate", {}, 0.9);
+      return p && p.mode === "arbitrate" && p.deps && p.deps.merchandising && p.deps.merchandising[0] === "order"; }],
+  ["fake：取消订单 SO-2001 给我退款 → cancel_refund", function () { var u = ruleUnderstandBase("取消订单 SO-2001 给我退款"); return u.intent === "cancel_refund" && u.slots.order_no === "SO-2001"; }],
+  ["fake：SO-2001 实付多少钱 → promo_arbitrate", function () { return ruleUnderstandBase("SO-2001 实付多少钱").intent === "promo_arbitrate"; }],
+  ["fake：帮我把 SO-2001 改地址 → order_amend", function () { var u = ruleUnderstandBase("帮我把 SO-2001 改地址到北京"); return u.intent === "order_amend" && u.slots.order_no === "SO-2001"; }],
+  ["fake：查询 SKU-A001 的商品详情 → product_lookup", function () { var u = ruleUnderstandBase("查询 SKU-A001 的商品详情"); return u.intent === "product_lookup" && u.slots.sku === "SKU-A001"; }],
+  ["fake：对比 SKU-A001,SKU-A002 → product_compare", function () { return ruleUnderstandBase("对比 SKU-A001,SKU-A002").intent === "product_compare"; }],
+  ["fake：在吗 → greet；帮我转人工 → request_human", function () { return ruleUnderstandBase("在吗").intent === "greet" && ruleUnderstandBase("帮我转人工").intent === "request_human"; }],
+  ["M4 指代继承：「它多少钱」+历史含 SKU-A002 → sku 继承", function () {
+      var u = ruleUnderstand("它多少钱", ["客户问：SKU-A002 到手价多少", "客服答：估算 141.55 元"]);
+      return u.intent === "promo_evaluate" && u.slots.sku === "SKU-A002"; }],
+  ["M4 显式 id 优先：SKU-B001 不被历史覆盖", function () {
+      var u = ruleUnderstand("SKU-B001 多少钱", ["客户问：SKU-A002 到手价多少"]);
+      return u.intent === "promo_evaluate" && u.slots.sku === "SKU-B001"; }],
+  ["M4 无指代词不继承（普通句安全）", function () {
+      var u = ruleUnderstand("查一下库存", ["客户问：SKU-A002 到手价多少"]);
+      return !u.slots.sku; }],
+  ["fake：SKU-A001 坏了+保修 → warranty_check 三域并行", function () {
+      var u = ruleUnderstandBase("SKU-A001 坏了，保修内还是保修外");
+      return u.intent === "warranty_check"; }]
+];
+document.getElementById("t-go").onclick = function () {
+  var html = "<table class='t'><tr><th>断言</th><th>结果</th></tr>";
+  var ok = 0;
+  CASES.forEach(function (c) {
+    var pass = false;
+    try { pass = c[1](); } catch (e) { pass = false; }
+    if (pass) ok++;
+    html += "<tr><td>" + c[0] + "</td><td class='" + (pass ? "pass" : "fail") + "'>" + (pass ? "PASS" : "FAIL") + "</td></tr>";
+  });
+  html += "</table><div class='note'>" + ok + "/" + CASES.length + " 通过</div>";
+  document.getElementById("t-out").innerHTML = html;
+};
+document.getElementById("t-clear").onclick = function () { document.getElementById("t-out").innerHTML = ""; };
+</script>
+</body>
+</html>

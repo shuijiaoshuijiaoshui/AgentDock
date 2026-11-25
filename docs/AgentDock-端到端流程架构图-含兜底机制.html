@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AgentDock 商家经营咨询中台 · 端到端流程架构图（含兜底机制 M4）</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; margin: 24px; background: #fafafa; color: #222; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 16px; margin-top: 32px; }
+  .legend { font-size: 13px; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px 14px; display: inline-block; }
+  .legend b { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin: 0 4px 0 10px; }
+  .note { font-size: 13px; color: #555; max-width: 1080px; line-height: 1.7; }
+  table { border-collapse: collapse; background: #fff; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0f4f8; }
+  code { font-family: Consolas, monospace; font-size: 12px; background: #faf5fd; color: #8a4b8a; padding: 1px 4px; border-radius: 3px; }
+  ul.note li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<h1>AgentDock 商家经营咨询中台 · 端到端流程架构图（含兜底机制 M4）</h1>
+<p class="note">
+依据《企业级设计与生产流程》与当前代码（10 个进程 / 7 个领域 Agent / 27 个域内工具 / 27 类意图 / 5 态会话状态机）绘制。
+新增兜底点以 <b style="background:#fde8e8;border:1px dashed #be6666;padding:0 6px"></b>红色虚线 标注：
+① 意图与澄清兜底 ② 跨域一致性与交付兜底 ③ 域委托兜底（AgentCard JWS 验签） ④ 写操作门禁与失败兜底
+⑤ 权限与数据兜底 ⑥ 人工与审计兜底。图内编号与下方对照表一一对应。
+LLM 本身不直连数据库：写操作只能由模型提出 tool_call，经客户确认或审批后由域服务执行；无确认/审批时工具返回 <code>pending_confirm</code> / <code>pending_approval</code>，不会落库。图依赖 Mermaid CDN，联网打开；离线场景可改用本地渲染或导出的 SVG。
+</p>
+
+<div class="mermaid">
+flowchart TB
+    CUST(["客户 / 商家采购"]) --> CP["客户页 /customer<br/>登录 · 会话 · 四类卡片 · 附件 · 转人工"]
+    PORTAL["商家后台 demo /portal<br/>同源内嵌客服"] --> CP
+    STAFF(["坐席 / 主管 / 财务"]) --> WB["坐席工作台 /<br/>队列 · 摘要 · 360 · trace · 审批"]
+
+    CP --> GW["console :8307 接入层<br/>HTTP / WebSocket · Cookie+CSRF · JWT · 租户 · 限流"]
+    WB --> GW
+    GW --> AUTH{"身份 / 租户 / 对象归属<br/>校验通过?"}
+    AUTH -->|否| DENY["401 / 403 / 404<br/>写审计 · 不泄露资源存在性"]
+    AUTH -->|是| ORCH["orchestrator :8300<br/>LangGraph 主图"]
+    AUTH -->|是| STATE["会话状态机<br/>AI_ACTIVE → PENDING_HANDOFF → HUMAN_ACTIVE → PENDING_REVIEW → CLOSED"]
+
+    ORCH --> INTAKE["intake<br/>PII 脱敏 · 近 6 轮历史 + 滚动摘要"]
+    INTAKE --> UND["understand<br/>LLM 结构化 / fake 规则模式"]
+    UND --> VALID{"白名单 + 置信度?"}
+    VALID -->|野标签 / 字段非法| WILD["兜底①：归一 unknown/0.3<br/>top2 只留白名单"]
+    WILD --> CLAR
+    VALID -->|低置信且未澄清| CLAR["澄清一次<br/>top2 可点选项"]
+    CLAR -->|回填仍不明| NOMATCH["拒答 + 可做能力<br/>碰壁计数 +1"]
+    NOMATCH -->|碰壁 ≥ 2| HUMAN
+    VALID -->|高风险词：投诉 / 纠纷 / 资金| HUMAN
+    VALID -->|通过| ROUTE{"route<br/>27 意图 → Plan"}
+
+    ROUTE --> MODE{"执行模式"}
+    MODE -->|single / parallel| ADV["advance · Send 扇出"]
+    MODE -->|serial| SER["串行链<br/>上游否决取消下游"]
+    MODE -->|arbitrate| ARB["仲裁调度"]
+    MODE -->|saga| SAGA["写链 + 逆序补偿"]
+    ADV --> DC
+    SER --> DC
+    ARB --> DC
+    SAGA --> DC
+
+    DC["domain_call<br/>A2A Client：拉 Card → 验签"] --> CARD{"AgentCard JWS<br/>ES256 验签通过?"}
+    CARD -->|失败 / 不可达 / 超时| LOCAL["兜底③：error 占位<br/>局部交付 · card.verify_failed 审计"]
+    CARD -->|通过| DOM["7 个领域 Agent<br/>商品 · 订单 · 履约 · 售后 · 财务 · 政策 · 客户"]
+    DOM --> TOOL["域内工具（26 个：只读 20 / 写 6）<br/>写 = 改地址·改价·取消·退款·开票·建工单<br/>scope 双检 · 租户复合键 · 对象归属"]
+    TOOL --> DB[("业务库 SQLite / Postgres<br/>订单 · 售后 · 财务 · 政策 · 客户")]
+    TOOL -->|写操作| GATE{"两阶段确认 / 审批<br/>退款一律审批 · 改价/开票阈值<br/>token · 双人 · 幂等"}
+    GATE -->|拒绝 / 过期 / 越权| STOP["不执行 · 写审计"]
+    GATE -->|通过| DB
+    TOOL -->|写失败| FAIL["兜底④：不自动重试<br/>Saga 补偿 / 升级人工"]
+
+    DOM --> ART["产物：authority + as_of<br/>+ snapshot_id + summary"]
+    ART --> SYN["synthesize<br/>权威字段仲裁 · 时点检查<br/>PII 不进 LLM"]
+    SYN --> DEL{"deliver<br/>来源标注齐全?"}
+    DEL -->|缺权威来源| BLOCK["兜底②：整体拒答<br/>来源校验未通过"]
+    DEL -->|通过| ANSWER["final_answer<br/>文本 + 四类卡片 + 待确认 / 待审批"]
+    LOCAL --> SYN
+
+    ANSWER --> OUT(["返回客户 / 坐席"])
+    BLOCK --> OUT
+
+    STATE --> HUMAN["人工坐席<br/>交接包 · 队列 / SLA · 摘要 / 360<br/>驳回编辑 · 内部备注 · 转交"]
+    HUMAN -->|复核通过| CLOSED(["CLOSED"])
+    HUMAN -->|复核驳回| HUMAN
+    WB --> APPR["审批面板<br/>列表 / 通过 / 拒绝 / 执行"]
+    APPR --> SEC
+
+    TOOL --> SEC[("securityd :8309<br/>审计 / 审批 / 确认单 单写者")]
+    SEC --> AUDIT[("HMAC 哈希链<br/>per-tenant head · 篡改 / 删尾可发现")]
+    ORCH -. traceparent .-> TRACE["OTel trace<br/>trace_id 与审计 / agent_runs 同号"]
+    DC -. traceparent .-> TRACE
+    DOM -. traceparent .-> TRACE
+    TRACE --> EXP[("file / OTLP exporter")]
+    WB --> OPS["工单 · 知识库 · 统计看板"]
+    OPS --> DB
+
+    classDef actor fill:#e7f3ef,stroke:#31836e,color:#173d34,stroke-width:1.5px;
+    classDef core fill:#eaf0fb,stroke:#5478b8,color:#243b62,stroke-width:1.5px;
+    classDef tool fill:#eaf5f4,stroke:#368c87,color:#174d4a,stroke-width:1.5px;
+    classDef gate fill:#fff8e9,stroke:#cf9d39,color:#634819,stroke-width:1.5px;
+    classDef storage fill:#f0edf8,stroke:#8472aa,color:#44365f,stroke-width:1.5px;
+    classDef human fill:#fbeaea,stroke:#be6666,color:#672f2f,stroke-width:1.5px;
+    classDef fallback fill:#fde8e8,stroke:#be6666,color:#672f2f,stroke-width:2.5px,stroke-dasharray:4 2;
+
+    class CUST,PORTAL,STAFF,CP,WB,OUT,CLOSED actor;
+    class GW,ORCH,INTAKE,UND,ROUTE,MODE,ADV,SER,ARB,SAGA,DC,SYN,ANSWER core;
+    class DOM,TOOL,ART,DB,OPS tool;
+    class AUTH,VALID,CARD,GATE,DEL,STATE,APPR gate;
+    class SEC,AUDIT,TRACE,EXP storage;
+    class DENY,CLAR,NOMATCH,HUMAN,STOP human;
+    class WILD,LOCAL,FAIL,BLOCK fallback;
+</div>
+
+<h2>兜底机制对照表（图内编号）</h2>
+<table>
+<tr><th>编号</th><th>兜底点</th><th>触发条件</th><th>兜底动作</th><th>代码落点</th></tr>
+<tr>
+  <td>①</td><td>意图与澄清兜底</td>
+  <td>LLM/规则输出白名单外标签、字段不合法、置信不足；高风险词命中</td>
+  <td>野标签归一 <code>unknown/0.3</code>、清空槽位、top2 只留白名单；低置信澄清一次，仍不明则拒答并“碰壁 +1”，碰壁 ≥2 转人工；投诉/纠纷/资金类直接转人工</td>
+  <td><code>orchestrator/graph.py</code> <code>_classify</code> / <code>_clarify_options</code> / <code>nomatch</code> / <code>after_nomatch</code></td>
+</tr>
+<tr>
+  <td>②</td><td>跨域一致性与交付兜底</td>
+  <td>多域数字冲突、快照时点不一致、上游业务否决、产物缺权威来源</td>
+  <td>按权威矩阵清洗，丢弃值写 <code>decision_log</code>；时点偏差标注；上游否决后下游取消不调用；缺来源整体拒答“来源校验未通过”</td>
+  <td><code>orchestrator/arbitrate.py</code> · <code>graph.py</code> <code>synthesize</code> / <code>deliver</code></td>
+</tr>
+<tr>
+  <td>③</td><td>域委托兜底（AgentCard JWS）</td>
+  <td>AgentCard 验签失败、kid 未知、域不可达、超时、结构非法</td>
+  <td>该域 <code>error</code> 占位 = 局部交付，其余域照答；验签失败额外写审计 <code>card.verify_failed</code>；不盲目重发、不编造数据</td>
+  <td><code>shared/card_signing.py</code> · <code>shared/a2a_client.py</code> · <code>graph.py</code> <code>domain_call</code></td>
+</tr>
+<tr>
+  <td>④</td><td>写操作门禁与失败兜底</td>
+  <td>重复提交、误操作、退款（无论金额）、改价/开票超阈值、写链中途失败</td>
+  <td>退款**无论金额一律人工审批**（阈值只决定 1 人/双人复核）；改价/开票超阈值审批；幂等键判重 + 两阶段确认（一次性 token）；失败不自动重试，按 Saga 逆序补偿，补偿失败升级人工并留痕；已退款订单禁止 restore（防钱货两空）</td>
+  <td><code>shared/confirmations.py</code> · <code>shared/approvals.py</code> · <code>route_table.py</code> SAGA_CHAINS</td>
+</tr>
+<tr>
+  <td>⑤</td><td>权限与数据兜底</td>
+  <td>跨客户 / 跨租户访问、伪造 action / intent、PII 进入模型、附件越权下载</td>
+  <td>对象级归属校验（customer=token.sub，staff 显式 customer_id，service 必须 on_behalf_of）；租户复合键；PII 字段脱敏后才进 LLM；附件私有存储 + MIME 嗅探 + 鉴权下载；未注册 action 400、越权 403/404</td>
+  <td><code>shared/authz.py</code> · <code>shared/auth.py</code> · <code>shared/llm_guard.py</code> · <code>console/attachments.py</code></td>
+</tr>
+<tr>
+  <td>⑥</td><td>人工与审计兜底</td>
+  <td>AI 碰壁 / 高风险 / 客户主动转人工；资金写链完成；坐席关闭会话</td>
+  <td>生成结构化交接包进入队列（SLA / 未读 / 优先级）；坐席接管、内部备注、驳回编辑、转交、交还 AI；资金链完成或坐席关闭 → <code>PENDING_REVIEW</code>，主管通过才 <code>CLOSED</code>，驳回回人工；所有状态转换写审计</td>
+  <td><code>console/server.py</code> handoff / review / reject-answer · <code>securityd</code> · <code>shared/audit.py</code> · <code>shared/tracing.py</code></td>
+</tr>
+<tr>
+  <td>—</td><td>总原则</td>
+  <td>任一门禁被拒 / 任一环节失败</td>
+  <td>写审计；终点只有四种：正常结果、局部交付、拒答、转人工——不存在“悄悄失败”或“伪装成功”</td>
+  <td><code>shared/audit.py</code> · 全链路</td>
+</tr>
+</table>
+
+<h2>已知缺口（如实标注，不计入兜底承诺）</h2>
+<ul class="note">
+  <li><b>生产模式 LLM 异常未降级规则分类</b>：真模型超时 / 输出不合 schema 时任务会 failed；只有白名单归一与澄清，未回落 <code>rule_understand</code>（fake 模式本身走规则）。</li>
+  <li><b>Card 签名密钥在 dev 由全部服务共用一份文件</b>：验签只能证明“本系统签发”，不能证明具体服务身份；生产需每服务独立私钥 + 公钥分发，compose 未挂载密钥。</li>
+  <li><b>OTel 仅 file exporter + 头部采样</b>：异常全采需 collector 级尾采样；多机部署需共享 <code>TRACE_DIR</code>（compose 未挂卷）。</li>
+  <li><b>assist 会话历史注入不在本阶段</b>：工作台「AI 查询」已绑定会话客户上下文，但未回注近 6 轮历史/摘要。</li>
+</ul>
+
+<h2>图例</h2>
+<div class="legend">
+<b style="background:#e7f3ef"></b>角色/出口 <b style="background:#eaf0fb"></b>核心编排 <b style="background:#eaf5f4"></b>领域/工具/产物
+<b style="background:#fff8e9"></b>门禁/判定 <b style="background:#f0edf8"></b>存储/可观测 <b style="background:#fbeaea"></b>人工/终止
+<b style="background:#fde8e8;border:1px dashed #be6666"></b>兜底机制
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "default",
+    flowchart: { curve: "basis", useMaxWidth: true }
+  });
+</script>
+</body>
+</html>

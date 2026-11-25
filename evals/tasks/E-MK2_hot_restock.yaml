@@ -1,0 +1,25 @@
+id: E-MK2
+title: 爆款发现→履约备货联动（仲裁链 top_sku 注入）
+group: 营销经营分析
+surface: a2a
+tenant: t_demo
+services: [orchestrator, marketing, fulfillment]
+steps:
+  - do: a2a
+    text: 啥卖得最火，需要补货吗
+    customer_id: CU-1001
+rubrics:
+  - {dim: completion, check: state_completed, desc: 任务完成态}
+  - {dim: completion, check: artifacts_set,
+     args: {equals: [marketing, fulfillment]}, desc: 仲裁链双域产物}
+  - {dim: completion, check: artifact_field,
+     args: {domain: marketing, path: data.top_sku, equals: SKU-A003},
+     desc: 爆款 top1 = SKU-A003（增速剧本）}
+  - {dim: completion, check: artifact_field,
+     args: {domain: fulfillment, path: data.sku, equals: SKU-A003},
+     desc: top_sku 注入履约域，查的是同一 SKU}
+  - {dim: completion, check: artifact_field,
+     args: {domain: fulfillment, path: data.available, equals: 80},
+     desc: 可承诺库存=80（剧本库存）}
+  - {dim: completion, check: reply_contains, args: {all: ["SKU-A003"]},
+     desc: 回答含爆款 SKU 与备货结论}

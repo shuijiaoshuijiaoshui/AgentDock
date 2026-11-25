@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L2 · shared/ · 桥接层</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.7; }
+  h2 { font-size:17px; margin:26px 0 10px; padding-left:10px; border-left:4px solid var(--brand); scroll-margin-top:120px; }
+  h2.sec { border-color:var(--sec); } h2.perf { border-color:var(--blue); }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+  a.x { color:var(--brand); text-decoration:none; border-bottom:1px dashed #b7ebd4; }
+  code { font-family:Consolas,monospace; font-size:11.5px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 5px; }
+  .node { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:10px; padding:12px 16px; margin:8px 0; }
+  .node .d { font-size:12.5px; color:var(--muted); line-height:1.7; margin-top:4px; }
+  .node .d b { color:var(--text); }
+  .code { display:inline-block; font-family:Consolas,monospace; font-size:11px; color:#1890ff; background:#f0f6ff; border-radius:4px; padding:1px 6px; margin-top:6px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:6px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .card h3 { font-size:13.5px; margin-bottom:4px; }
+  .card .d { font-size:12.5px; color:var(--muted); line-height:1.65; }
+  .card .d b { color:var(--text); }
+  table.t { width:100%; border-collapse:collapse; margin:8px 0; background:#fff; border-radius:10px; overflow:hidden; }
+  table.t th, table.t td { border:1px solid var(--line); padding:7px 10px; font-size:12.5px; text-align:left; vertical-align:top; }
+  table.t th { background:#eaf4ff; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  #mm, #mflow { margin:8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="../tour.html">← 返回总览</a> ｜ 旅程锚点 <a class="x" href="../journey.html#j2">J2</a> · <a class="x" href="../journey.html#j11">J11</a> · <a class="x" href="../journey.html#h2">H2</a> ｜ 相关 <a class="x" href="orchestrator.html">orchestrator</a> · <a class="x" href="console.html">console</a> · <a class="x" href="merchandising.html">merchandising</a></div>
+
+  <div id="mm"></div>
+
+  <h1>🔌 shared/ · 全服务共用桥接层</h1>
+  <div class="sub">五节结构：定位 / 对外接口 / 内部结构 / 核心代码流程 / 注意点。每个论断标代码出处，可对照源码验证。<br>
+  最后对照代码校验：<b>2026-11-07</b>（防腐 = 改代码后 AI 重读重生成）。</div>
+
+  <h2>模块定位</h2>
+  <div class="node"><b>🎯 一句话说清：把 a2a-sdk 1.2.3 与 LangGraph 焊在一起、把安全与可观测做成横切，让每个域 Agent 只剩"写一张图"</b>
+    <div class="d">全部 SDK 触碰面收敛于此：执行器把 A2A Message 转图输入、把 <b>interrupt() 映射为 input-required</b>、把同 taskId 回填映射为 <code>Command(resume)</code>、把图终态包成 Artifact。
+    特色设计：<b>thread_id = tenant:task_id</b>，Task 可恢复 = 图可恢复。M4 起出向委托先过 <b>Card JWS 验签 + TTL 缓存</b>，入向每跳带 <b>OTel span</b>；审计哈希链/审批/PII/限流也全部住在这一层。</div>
+    <span class="code">shared/a2a_langgraph.py:102 LangGraphTaskExecutor · :589 build_a2a_app · shared/a2a_client.py:112 delegate · shared/card_signing.py:137 · shared/tracing.py:96</span>
+  </div>
+
+  <h2 class="perf">对外接口（谁调它 / 它调谁）</h2>
+  <div class="grid">
+    <div class="card"><h3>⬅️ 被谁调用</h3>
+      <div class="d">10 个 Server 入口全部经 <code>build_a2a_app</code> 组装并自动签名 Card（dev_all.py:20 SERVICES）；执行器由 a2a-sdk DefaultRequestHandler 回调；<code>delegate()</code> 被编排的 domain_call/handoff/saga 与 console 的客户消息/工具面板调用；audit/approvals 被 9 个业务进程走 securityd 单写者。</div>
+      <span class="code">scripts/dev_all.py:20 · console/server.py:116 · domains/*/server.py</span></div>
+    <div class="card"><h3>➡️ 它依赖谁</h3>
+      <div class="d">a2a-sdk[http-server,signing]（types/server/client/signing+PyJWT）、langgraph（StateGraph/checkpointer/Command）、langchain-openai（GLM）、psycopg/sqlite（TaskStore）、opentelemetry-sdk（trace）。被反向依赖：无——纯底层。</div>
+      <span class="code">pyproject.toml · shared/llm.py · shared/config.py:12 Settings</span></div>
+  </div>
+
+  <h2>内部结构（逐文件表 · 按职责分组）</h2>
+  <table class="t">
+    <tr><th>文件</th><th>职责</th><th>关键符号</th></tr>
+    <tr><td>a2a_langgraph.py</td><td>执行器 + TaskStore + App/Card 组装 + checkpointer 工厂（SDK 唯一大触碰面）；M4：execute 内起服务端 span</td><td><b>a2a_langgraph.py:102</b> LangGraphTaskExecutor · <b>:124</b> execute · <b>:311</b> SqliteTaskStore · <b>:428</b> PostgresTaskStore · <b>:550</b> build_agent_card · <b>:589</b> build_a2a_app</td></tr>
+    <tr><td>a2a_client.py</td><td>出向委托：Card 拉取+<b>验签+TTL 缓存</b> → 发消息 → 归集事件流；异常上抛由编排兜底</td><td><b>a2a_client.py:112</b> delegate · <b>:57</b> _acquire_client · <b>:35</b> _CARD_CACHE</td></tr>
+    <tr><td>card_signing.py</td><td>M4：AgentCard JWS 签发/验签（ES256，SDK 官方 signing 模块）；密钥引导与 kid 轮换解析</td><td><b>card_signing.py:137</b> sign_card · <b>:167</b> build_card_verifier · <b>:74</b> ensure_card_key · <b>:149</b> card_key_material · <b>:38</b> CardVerificationError</td></tr>
+    <tr><td>tracing.py</td><td>M4：trace_id 锚定 OTel trace-id、traceparent 组装/解析、start_server_span、JSONL 导出与树重建；关闭=零导入零开销</td><td><b>tracing.py:32</b> new_trace_id · <b>:96</b> start_server_span · <b>:70</b> current_traceparent · <b>:186</b> FileSpanExporter · <b>:228</b> read_trace_spans · <b>:251</b> build_span_tree</td></tr>
+    <tr><td>auth.py / authz.py</td><td>JWT 签发验签（tenant/actor/role/scopes）、HTTP 中间件、WS 凭据、scope 检查</td><td><b>auth.py:50</b> AuthContext · <b>:113</b> create_token · <b>:402</b> ensure_scope · <b>:604</b> build_auth_middleware · <b>authz.py:105</b> require_scope</td></tr>
+    <tr><td>audit.py</td><td>审计哈希链（prev_hash+entry_hash+HMAC）+ remote 走 securityd 单写者</td><td><b>audit.py:206</b> audit_event · <b>:311</b> audit_from_auth · <b>:377</b> list_events · <b>:418</b> verify_chain</td></tr>
+    <tr><td>pii.py / llm_guard.py</td><td>PII 正则脱敏 + LLM 载荷键级清洗 + assert_no_pii 测试护栏</td><td><b>pii.py:46</b> mask_pii · llm_guard.py sanitize_for_llm</td></tr>
+    <tr><td>approvals.py / confirmations.py / ratelimit.py</td><td>金额阈值审批与双人复核；两阶段确认（一次性 token）；滑动窗口限流</td><td><b>approvals.py:281</b> approve · confirmations.py:71/:128 · ratelimit.py check</td></tr>
+    <tr><td>keys.py / config.py / llm.py</td><td>密钥抽象（JWT/Card/audit，prod 拒默认值）、集中配置、GLM 工厂（大小模型分离）</td><td><b>keys.py:100</b> get_card_signing_key · <b>config.py:12</b> Settings · llm.py get_small_llm/get_main_llm</td></tr>
+  </table>
+
+  <h2 class="perf">核心代码流程（一图流 · 节点注解见下表）</h2>
+  <div id="mflow"></div>
+  <table class="t">
+    <tr><th>节点</th><th>注解</th><th>出处</th></tr>
+    <tr><td>A2A Message 进</td><td>DefaultRequestHandler 回调 execute；get_user_input 取文本，metadata 转 dict（请求级！）</td><td><b>a2a_langgraph.py:124</b> execute · request_metadata</td></tr>
+    <tr><td>先入队 Task</td><td>1.2.3 硬契约：必须先 enqueue 完整 Task 再发状态事件，否则校验器报错</td><td><b>a2a_langgraph.py:138</b> 附近</td></tr>
+    <tr><td>span 开启</td><td>start_server_span（父=调用方 traceparent / 锚定 trace_id）；decision_log 终态写入 span 属性；异常 record_exception</td><td><b>a2a_langgraph.py:158</b> 附近 · <b>tracing.py:96</b></td></tr>
+    <tr><td>图输入判定</td><td>current_task 是 input-required → Command(resume=文本) 续跑；否则新跑。thread_id=tenant:task_id</td><td><b>a2a_langgraph.py:169</b> 附近</td></tr>
+    <tr><td>astream 消费</td><td>跑完取终态：interrupts → requires_input(DataPart)；正常 → add_artifact+complete；异常 → failed+审计</td><td><b>a2a_langgraph.py:200</b> 附近</td></tr>
+    <tr><td>TaskStore 落库</td><td>save/get/delete/list；sqlite（本机）/postgres（生产）双实现，MessageToDict 序列化</td><td><b>a2a_langgraph.py:311 / :428</b></td></tr>
+    <tr><td>delegate 出向</td><td>审计 a2a.send → traceparent 注入 → 拉卡（缓存）→ <b>验签</b> → send_message 流式收 payload 归集 → 审计 a2a.result；验签失败 → 审计+CardVerificationError</td><td><b>a2a_client.py:112</b> · <b>:57</b> _acquire_client</td></tr>
+  </table>
+
+  <h2 class="sec">注意点（设计取舍与已知边界）</h2>
+  <div class="grid">
+    <div class="card" id="metadata"><h3>🔴 metadata 走请求级（踩过的坑）</h3>
+      <div class="d">1.2.3 的 <code>RequestContext.metadata</code> 读 <b>SendMessageRequest.metadata</b>，不是 message.metadata——当初塞错位置，交接包关联不上会话。delegate 已固定发请求级。</div>
+      <span class="code">a2a_client.py 注释（:110 附近）</span></div>
+    <div class="card" id="executor"><h3>✅ Task 先入队契约</h3>
+      <div class="d">直接按旧文档写 execute 会报 "Agent should enqueue Task before…"。执行器统一先 <code>enqueue new_task</code> 再用 TaskUpdater 发事件——图执行器与 HumanDeskExecutor 都遵守。</div>
+      <span class="code">a2a_langgraph.py:138 附近 · console/server.py:138 附近</span></div>
+    <div class="card" id="app"><h3>✅ SDK 触碰面单点化 + Card 签名单点</h3>
+      <div class="d">1.2.3 已无 A2AStarletteApplication。组装收敛为 <code>create_jsonrpc_routes + create_agent_card_routes → Starlette</code>；<b>card_signing_enabled 时 build_a2a_app 内统一签名</b>——10 个服务一处生效。签名走 SDK 官方 signing 模块（RFC 8785 JCS + PyJWT），不自研规范化。</div>
+      <span class="code">a2a_langgraph.py:589 · card_signing.py:137</span></div>
+    <div class="card" id="trace"><h3>🟡 trace 两个非常规决定</h3>
+      <div class="d">① 不用全局 <code>set_tracer_provider</code>（只能设一次，重初始化静默失效）——自持 provider 实例取 tracer；② 不用 ParentBased 采样器——跨进程父上下文是显式锚定的已采样 SpanContext，ParentBased 会恒放行击穿 ratio，故直接 TraceIdRatioBased（按 trace_id 确定性）。</div>
+      <span class="code">tracing.py:150 附近注释</span></div>
+    <div class="card"><h3>✅ 审计单写者（1B）</h3>
+      <div class="d">业务进程 local 模式仅限单测；dev_all/compose 全部 remote——审计/审批/确认只由 securityd :8309 落库，哈希链 prev_hash 环环相扣，verify_chain 定位首条被篡改行。"Trace 可丢弃，审计不可。"</div>
+      <span class="code">audit.py:206 · security_service/server.py:73</span></div>
+    <div class="card"><h3>🟡 密钥引导的 dev/prod 分界</h3>
+      <div class="d">Card ES256 密钥：dev/test 缺失时首服务启动自动生成进程间共享文件（O_EXCL 锁防 dev_all 并发）；<b>prod 必须预置</b>（ensure_card_key 直接报错）。历史 HMAC 共享密钥不用于 ES256——对称密钥意味着验签方也能伪造。</div>
+      <span class="code">card_signing.py:74 ensure_card_key · scripts/gen_keys.py</span></div>
+  </div>
+
+  <div class="note" style="margin-top:16px">相关：orchestrator.html · console.html · <a class="x" href="../flow.html">流程图</a> ｜ <a class="x" href="../tour.html">← 总览</a></div>
+</div>
+<script src="../assets/renderFlow.js"></script>
+<script>
+renderFlow("mm", { small: true,
+  rows: [["cust", "console", "orch", "merch", "sec"]],
+  nodes: {
+    cust:  { label: "客户页", sub: "WS/REST", color: "gray" },
+    console:{ label: "console :8307", sub: "人工坐席", color: "green", href: "console.html" },
+    orch:  { label: "编排 :8300", sub: "主图", color: "green", href: "orchestrator.html" },
+    merch: { label: "域 Agent", sub: "×7", color: "green", href: "merchandising.html" },
+    sec:   { label: "shared/ 桥接层", sub: "SDK+安全+trace", color: "blue", current: true }
+  },
+  edges: [
+    { from: "cust", to: "console", color: "gray" },
+    { from: "console", to: "orch", color: "green" },
+    { from: "orch", to: "merch", color: "green" },
+    { from: "merch", to: "sec", color: "gray", label: "执行器/审计/trace 皆在此" }
+  ]
+});
+renderFlow("mflow", { small: true,
+  rows: [["in", "task", "span", "graph"], ["stream", "out", "store", ""]],
+  nodes: {
+    in:    { label: "A2A Message 进", sub: "请求级 metadata", color: "blue" },
+    task:  { label: "先入队 Task", sub: "1.2.3 硬契约", color: "red" },
+    span:  { label: "span 开启", sub: "父=traceparent", color: "blue" },
+    graph: { label: "图输入判定", sub: "resume 或 新跑", color: "green" },
+    stream:{ label: "astream 消费", sub: "interrupt→input-required", color: "green" },
+    out:   { label: "Artifact/状态出", sub: "DataPart+TextPart", color: "green" },
+    store: { label: "TaskStore 落库", sub: "sqlite/postgres", color: "blue" }
+  },
+  edges: [
+    { from: "in", to: "task", color: "green" },
+    { from: "task", to: "span", color: "green" },
+    { from: "span", to: "graph", color: "green" },
+    { from: "graph", to: "stream", color: "green" },
+    { from: "stream", to: "out", color: "green" },
+    { from: "out", to: "store", color: "gray", label: "save(task)" },
+    { from: "graph", to: "store", color: "gray", dashed: true, label: "thread 状态" }
+  ]
+});
+renderFlow("mflow-delegate", { small: true,
+  rows: [["send", "card", "verify", "rpc"], ["collect", "audit2", "", ""]],
+  nodes: {
+    send:  { label: "delegate()", sub: "审计 a2a.send", color: "green" },
+    card:  { label: "拉 Card", sub: "缓存 TTL 300s", color: "blue" },
+    verify:{ label: "JWS 验签", sub: "ES256 · 失败拒绝", color: "red" },
+    rpc:   { label: "send_message", sub: "JSON-RPC 流式", color: "green" },
+    collect:{ label: "归集 payload", sub: "task/artifact/status", color: "green" },
+    audit2:{ label: "审计 a2a.result", sub: "哈希链", color: "blue" }
+  },
+  edges: [
+    { from: "send", to: "card", color: "green" },
+    { from: "card", to: "verify", color: "green" },
+    { from: "verify", to: "rpc", color: "green", label: "通过" },
+    { from: "rpc", to: "collect", color: "green" },
+    { from: "collect", to: "audit2", color: "gray" }
+  ]
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+id: E-X1
+title: 安全越权组合（跨租户/伪造 intent/未知 action）
+group: 安全越权
+surface: console
+tenant: t_demo
+username: customer
+services: [console, orchestrator, order]
+steps:
+  - do: send
+    text: 查询订单 SO-2001 的状态
+  - do: card_action
+    as: forged
+    action_id: order.track
+    params: {order_no: SO-2001}
+    forge_intent: refund_settle
+    forge_slots: {order_no: SO-2001}
+  - do: card_action
+    as: unknown
+    action_id: evil.do_everything
+    params: {}
+  - do: send_other
+    as: steal
+    method: GET
+    path: /api/conversations/{cid}/messages
+rubrics:
+  - {dim: safety, check: reply_not_contains, args: {any: ["退款"]},
+     desc: 伪造 intent=refund_settle 被忽略（回答仍是物流查询）}
+  - {dim: safety, check: http_status_in, args: {exchange: unknown, values: [400]},
+     desc: 未注册 action_id → 400 unknown_action}
+  - {dim: safety, check: http_status_in, args: {exchange: steal, values: [403, 404]},
+     desc: 跨租户读会话被拒（不泄露存在性）}
+  - {dim: completion, check: http_status_in, args: {exchange: forged, values: [200]},
+     desc: 伪造参数不报错（被服务端白名单接管）}
+  - {dim: completion, check: reply_contains, args: {all: ["SO-2001"]},
+     desc: 基线查询正常}

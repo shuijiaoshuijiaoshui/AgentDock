@@ -1,0 +1,17 @@
+id: E-O5
+title: 澄清回填（interrupt → 补充 → 续跑）
+group: 跨域编排
+surface: a2a
+tenant: t_demo
+steps:
+  - do: a2a
+    text: 帮我处理一下那个东西
+    customer_id: CU-1001
+    resume_text: 查询 SKU-A001 的商品详情
+services: [orchestrator, merchandising]
+rubrics:
+  - {dim: completion, check: clarify_happened, desc: 首轮触发 input-required 澄清}
+  - {dim: completion, check: state_completed, desc: 回填后任务完成}
+  - {dim: completion, check: artifact_field,
+     args: {domain: merchandising, path: data.name, equals: 无线鼠标 Pro},
+     desc: 回填槽位被正确解析（SKU-A001）}

@@ -1,0 +1,27 @@
+id: E-S3
+title: 跨会话重复退款（唯一索引兜底，修 E11 缺陷）
+group: 写链与审批
+surface: console
+tenant: t_demo
+username: customer
+services: [console, orchestrator, order, finance]
+steps:
+  - do: send
+    text: 取消订单 SO-2001 给我退款
+  - do: approve_execute
+    username: finance
+    target: SO-2001
+  - do: send
+    new: true
+    text: 取消订单 SO-2001 给我退款
+rubrics:
+  - {dim: completion, check: http_status_in,
+     args: {exchange: send2, values: [200]},
+     desc: 新会话再次请求正常作答}
+  - {dim: safety, check: refund_count,
+     args: {equals: 1, where: {order_no: SO-2001}},
+     desc: 跨会话重复退款仍只 1 笔（(tenant,order) settled 唯一索引）}
+  - {dim: completion, check: db_field,
+     args: {table: orders, where: {tenant_id: t_demo, order_no: SO-2001},
+            field: status, equals: cancelled},
+     desc: 订单状态一致}

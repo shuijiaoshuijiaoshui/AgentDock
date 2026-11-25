@@ -1,0 +1,20 @@
+id: E-O1
+title: 三域并行·保修判定（售后∥政策∥商品）
+group: 跨域编排
+surface: a2a
+tenant: t_demo
+steps:
+  - do: a2a
+    text: SKU-A001 坏了，保修内还是保修外
+    customer_id: CU-1001
+services: [orchestrator, aftersale, policy, merchandising]
+rubrics:
+  - {dim: completion, check: state_completed, desc: 任务完成态}
+  - {dim: completion, check: artifacts_set,
+     args: {equals: [aftersale, policy, merchandising]},
+     desc: 三域产物齐备（并行扇出）}
+  - {dim: completion, check: artifact_field,
+     args: {domain: aftersale, path: data.conclusion, equals: 保修内},
+     desc: 售后结论=保修内}
+  - {dim: completion, check: reply_contains, args: {any: ["CLS-002", "无线鼠标"]},
+     desc: 回答引用生效条款/商品档案}

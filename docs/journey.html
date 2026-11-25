@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentDock · 旅程：一条客户消息的一生</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.7; }
+  h2 { font-size:17px; margin:26px 0 10px; padding-left:10px; border-left:4px solid var(--brand); scroll-margin-top:120px; }
+  h2.human { border-color:var(--sec); }
+  a.x { color:var(--brand); text-decoration:none; border-bottom:1px dashed #b7ebd4; }
+  code { font-family:Consolas,monospace; font-size:11.5px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 5px; }
+  .jcard { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:10px; padding:12px 16px; margin:10px 0; scroll-margin-top:110px; }
+  .jcard.human { border-left-color:var(--sec); }
+  .jcard.warn { border-left-color:var(--warn); }
+  .jcard h3 { font-size:14px; margin-bottom:4px; }
+  .jcard .d { font-size:12.5px; color:var(--muted); line-height:1.7; }
+  .jcard .d b { color:var(--text); }
+  .jcard .watch { margin-top:7px; font-size:12px; background:#f0f6ff; border-radius:6px; padding:6px 10px; color:#26313d; line-height:1.6; }
+  .jcard .code, .watch code { font-family:Consolas,monospace; font-size:11px; color:#1890ff; }
+  .jcard .code { display:inline-block; margin-top:6px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 6px; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="tour.html">← 返回总览</a> ｜ 单图看全出口：<a class="x" href="flow.html">flow.html</a> · 按服务分道：<a class="x" href="swimlane.html">swimlane.html</a> ｜ 模块内实现细节见各 modules/*.html</div>
+  <h1>🚶 旅程：一条客户消息的一生</h1>
+  <div class="sub">
+    从客户在客户页敲下一句话开始，到收到回答（或被转人工）为止，跨 console/编排/域/securityd 的完整时序。
+    每个节点卡都有 <b>👁 观察点</b>——这一步在哪能亲眼看到（真实日志字符串 / 数据库行 / 页面变化），全部从源码提取。<br>
+    最后对照代码校验：<b>2026-11-07</b>（防腐 = 改代码后 AI 重读重生成）。
+  </div>
+
+  <h2>前半程 · AI 应答（主链路）</h2>
+
+  <div class="jcard" id="j0"><h3>j0 · 客户发送消息</h3>
+    <div class="d">客户页输入"查询 SKU-A001 的商品详情"。已有会话 → 走 <b>WebSocket</b>（<code>/ws/{cid}</code>，首包 JWT 认证）；首条消息走 REST <code>POST /api/customer/send</code> 建会话。
+    会话 id = <b>A2A contextId</b>，全链路的关联主键。</div>
+    <span class="code">console/server.py:1084 api_customer_send · :2159 ws_chat · static/customer.html</span>
+    <div class="watch">👁 观察点：客户页消息立即上屏；localStorage 出现 16 位会话 id；登录后 Cookie 下发（HttpOnly + CSRF 双 Cookie）。</div>
+  </div>
+
+  <div class="jcard" id="j1"><h3>j1 · console 落库并扇出</h3>
+    <div class="d">客户消息 <code>mask_pii</code> 脱敏后写入 <code>messages</code> 表（role=customer），并经 <b>ConvSockets 注册表</b>扇出到该会话所有 WebSocket 连接——工作台若开着这个会话，此刻就能看到。</div>
+    <span class="code">console/server.py:586 handle_customer_message · :199 ConvSockets · db.py:460 add_message</span>
+    <div class="watch">👁 观察点：sqlite 查 <code>console.db → messages</code> 最新一行 role=customer；工作台聊天窗实时多出这条消息（无需刷新）。</div>
+  </div>
+
+  <div class="jcard" id="j2"><h3>j2 · console → 编排（A2A 委托 + Card 验签）</h3>
+    <div class="d">AI 模式下 console 用 <code>delegate()</code> 以<b>新 Task + 同 contextId</b> 调编排 :8300，请求级 metadata 携带 trace_id / context_id / <b>history（摘要+近 6 轮）</b> / wall_count / 身份。
+    M4：委托前先拉 <code>/.well-known/agent-card.json</code> → <b>ES256 JWS 验签</b>（验签通过才建 Task，失败审计 card.verify_failed）→ Card 缓存 TTL 300s。同时 console 根 span 激活，traceparent 注入 metadata（跨进程调用树由此扎根）。</div>
+    <span class="code">console/server.py:586 · shared/a2a_client.py:112 delegate · :57 _acquire_client · shared/card_signing.py:137 sign_card · shared/tracing.py:96 start_server_span</span>
+    <div class="watch">👁 观察点：编排侧 <code>a2a_tasks</code> 表新增一行（SUBMITTED→WORKING 流转）；<code>.data/traces/console.jsonl</code> 出现 <code>console.customer_turn</code> span（dev_all 默认开 trace）。</div>
+  </div>
+
+  <div class="jcard" id="j3"><h3>j3 · 编排 intake（脱敏 + 风险 + 装载）</h3>
+    <div class="d">纯代码节点：清洗输入[:2000]、再过一遍 mask_pii、正则检测高风险词（投诉/纠纷/315…）、从请求级 metadata 装载 context_id / wall_count / <b>history</b>、生成 trace_id 与 snapshot_id。身份只认 token claim。</div>
+    <span class="code">orchestrator/graph.py:362 intake · :73 _RISK_RE · shared/pii.py:46 mask_pii · state.py:59 history</span>
+    <div class="watch">👁 观察点：启动日志 <code>编排主图已就绪</code>（.data/logs/orchestrator_server.log）；审计 <code>task.submitted</code> 已入哈希链（securityd 独占库）。</div>
+  </div>
+
+  <div class="jcard" id="j4"><h3>j4 · understand（意图 + 槽位 + 置信，历史注入）</h3>
+    <div class="d">小模型结构化输出 <code>{intent, slots, confidence, top2}</code>（understand@1.5）；<b>历史块（摘要 + 近 6 轮）并入 prompt</b>，每轮再过 mask_pii。
+    <code>LLM_PROVIDER=fake</code> 时走关键词规则 + <b>指代槽位继承</b>（"它多少钱"→ 从历史按 sku/order_no/ticket_no 从新到旧补槽）。这是主图里第一处 LLM。</div>
+    <span class="code">orchestrator/graph.py:466 understand · :338 _classify · :236 _history_block · :87 rule_understand · :91 _history_carry_slots · prompts.py:35 understand@1.5</span>
+    <div class="watch">👁 观察点：e2e <code>tests/test_history_injection.py</code>：7 轮后问"它多少钱"仍解析出第 1 轮的 SKU-A002（fake 规则 + 掉窗轮次扫描）。</div>
+  </div>
+
+  <div class="jcard warn" id="j4c"><h3>j4c · 分支：低置信澄清（interrupt）</h3>
+    <div class="d">confidence &lt; 0.6 且 unknown 且未澄清且非高风险 → <b>interrupt()</b>，Task 置 input-required，payload（问题+top2 可点选项）随 status message 下发；console 记 <code>pending_task_id</code>。客户回填后<b>同 taskId</b> 重发 → <code>Command(resume)</code> 从断点续跑——暂停时状态在 checkpointer 里，进程重启仍可续。</div>
+    <span class="code">graph.py:466 understand 分支 · route_table.py:83 阈值0.6 · shared/a2a_langgraph.py:124 execute resume 判定</span>
+    <div class="watch">👁 观察点：客户页收到澄清问题；重启编排进程后回填仍续跑（AC-14，tests/test_e2e_smoke.py::test_restart_resume_ac14 真杀进程实测）。</div>
+  </div>
+
+  <div class="jcard" id="j5"><h3>j5 · route（查路由表，纯代码）</h3>
+    <div class="d"><code>(intent, 槽位齐全性) → Plan</code>，<b>禁止 LLM 参与路由</b>（AC-21：同输入 100 次同一条域链）。27 个意图纯配置；未命中 → nomatch；greet → smalltalk；转人工三条件优先于一切。</div>
+    <span class="code">orchestrator/graph.py:505 route · :525 after_route · route_table.py:11 ROUTE_TABLE · :86 route_plan</span>
+    <div class="watch">👁 观察点：tests/test_route_table.py 把"100 次确定性"做成可执行断言；<a class="x" href="rules-simulator.html">路由表模拟器</a>可在浏览器里复现同一条路由。</div>
+  </div>
+
+  <div class="jcard" id="j6"><h3>j6 · advance → domain_call（Send 扇出委托）</h3>
+    <div class="d">advance 拓扑调度器把"无未满足入边"的域用 <b>Send 并发扇出</b>（parallel 单层并行 / serial 逐跳 / arbitrate 分层 DAG）；domain_call 每域一实例转自然语言委托。域追问（单域）→ ask_user 上抛；不可达/验签失败/超时 → 该域 error 占位<b>局部交付</b>；串行链上游否决 → 下游取消。</div>
+    <span class="code">orchestrator/graph.py:666 advance · :711 _advance_arbitrate · :756 _advance_serial · :886 domain_call · :541 _delegation_text</span>
+    <div class="watch">👁 观察点：<code>.data/traces/orchestrator_server.jsonl</code> 出现 <code>a2a.execute orchestrator</code> span（含 decision_log 属性）；对故障域的请求在 decision_log 留 unreachable 行。</div>
+  </div>
+
+  <div class="jcard" id="j7"><h3>j7 · 域内 ReAct 小图</h3>
+    <div class="d">域图 = agent（GLM 绑工具，fake 模式规则选工具）→ tools（查 mock.db，scope 前置 ensure_scope）→ … → emit_artifact（产物必带 authority_domain/as_of/snapshot_id）。商品域 4 工具、订单 4、履约 3（含退库单草稿）、售后 4、财务 5、政策 3、客户 4，共 27 个 @tool。</div>
+    <span class="code">domains/merchandising/graph.py:111 build_domain_graph · tools.py:148 TOOLS · shared/auth.py:402 ensure_scope · shared/authz.py:105 require_scope</span>
+    <div class="watch">👁 观察点：<code>infra/mockdata/mock.db → products</code> 表 SKU-A001 行；域日志 <code>域图已就绪</code>；审计 <code>tool.call</code> 逐次入哈希链。</div>
+  </div>
+
+  <div class="jcard" id="j8"><h3>j8 · synthesize → deliver（裁决清洗 + 合成 + 校验）</h3>
+    <div class="d">合成前先过 <code>arbitrate_fields</code> 权威源清洗（非权威域携带权威字段即丢弃并留档 decision_log）+ 快照漂移检查（&gt;300s 标注）；主模型依据 Artifact 合成人话（synthesize@1.1，<b>载荷带历史块</b>）；<b>有掉窗轮次时生成滚动摘要</b>随 artifact 回传；deliver 校验产物权威标注，缺失整体拒答阻断。</div>
+    <span class="code">orchestrator/graph.py:1099 synthesize · :299 _maybe_session_summary · :1181 deliver · :1362 orchestrator_artifact_builder · arbitrate.py:41/:74</span>
+    <div class="watch">👁 观察点：smoke.py 输出"回答：…（数据时点 2026-…）"；artifact 里 handoff/hit_wall_count/session_summary 供渠道层消费。</div>
+  </div>
+
+  <div class="jcard" id="j9"><h3>j9 · console 回复落库（含 M4 回写）</h3>
+    <div class="d">console 读 Artifact：<code>messages</code> 写入 role=ai；<b>hit_wall_count 写回 conversations（跨 Task 续计）</b>；<b>session_summary 落库 session_summaries（下一轮回注）</b>；handoff=true 时会话置 pending_handoff（进入转人工支线 h1）；agent_runs 落调用链。</div>
+    <span class="code">console/server.py:586 · :364 _persist_agent_run · db.py:991 upsert_session_summary · db.py:683 record_agent_run</span>
+    <div class="watch">👁 观察点：<code>console.db → session_summaries</code> 出现该会话行（upto_message_id=掉窗边界）；<code>agent_runs</code> 新行带 trace_id。</div>
+  </div>
+
+  <div class="jcard" id="j10"><h3>j10 · 客户收到回答</h3>
+    <div class="d">WS <code>message</code> 事件推到客户页（和工作台），客户端按消息 id 去重追加。一条消息的一生结束——直到下一句，或触发转人工。</div>
+    <span class="code">console/server.py:67 _evt · :199 ConvSockets · static/customer.html</span>
+    <div class="watch">👁 观察点：客户页状态条更新；smoke.py 10/10 即本旅程的自动化版本（scripts/smoke.py:32 CASES）。</div>
+  </div>
+
+  <div class="jcard" id="j11"><h3>j11 · 事后回看（审计 + 调用树）</h3>
+    <div class="d">这条消息留下的证据全部可查：<b>审计哈希链</b>（每跳 task.* / tool.call / a2a.send，prev_hash 环环相扣，verify 端点全量校验并定位首条被篡改行）；<b>OTel 调用树</b>（console→编排→域→securityd 四进程 span 同 trace_id，API 重建以入口为根的树）；<b>agent_runs/steps</b>（工作台 trace 页签逐步展开）。</div>
+    <span class="code">shared/audit.py:418 verify_chain · shared/tracing.py:228 read_trace_spans · :251 build_span_tree · console/server.py:1983 api_trace_spans</span>
+    <div class="watch">👁 观察点：<code>GET /api/traces/{trace_id}</code> 返回树（services 含 console/orchestrator/域/securityd）；工作台「校验审计链」一键 verify。</div>
+  </div>
+
+  <h2 class="human">后半程 · 转人工支线（h1–h6）</h2>
+
+  <div class="jcard human" id="h1"><h3>h1 · 触发与交接包组装（编排侧）</h3>
+    <div class="d">三条件任一命中（明确要求 / 碰壁≥2 / 高风险词，after_route 优先级最高）→ <code>handoff</code> 节点组装<b>结构化交接包</b>：context_id、trace_id、customer_id、reasons、domain_artifacts、decision_log、ai_draft、user_text、<b>history(渠道层真实近 6 轮，M4 起不再只有当轮)</b>。不塞完整聊天记录。</div>
+    <span class="code">orchestrator/graph.py:1246 handoff · :525 after_route · :1241 after_nomatch</span>
+    <div class="watch">👁 观察点：交接包 JSON 即 humandesk 收到的 user input——tests/test_human_desk_e2e.py 断言 reasons 与身份贯通。</div>
+  </div>
+
+  <div class="jcard human" id="h2"><h3>h2 · A2A 委托人工坐席（新 Task，contextId 不变）</h3>
+    <div class="d">handoff 节点 <code>delegate()</code> 调 :8307 的 <code>handoff.accept</code>——与调用普通域 Agent 同一条协议路径（同样过 Card 验签）。失败有兜底话术（"转人工暂时排队失败…拨打服务热线"）。</div>
+    <span class="code">graph.py:1246 delegate 调用 · shared/a2a_client.py:112</span>
+    <div class="watch">👁 观察点：编排 a2a_tasks 表又多一行（目标是 humandesk 的 Card）；审计 handoff.* 入链。</div>
+  </div>
+
+  <div class="jcard human" id="h3"><h3>h3 · 入坐席待接管队列</h3>
+    <div class="d"><code>HumanDeskExecutor</code> 解析交接包 → 写 <code>handoff_queue</code> → 会话置 <code>pending_handoff</code> → 回 ack。编排侧 final_text："已为您转接人工客服，坐席正在接入，请稍候。"</div>
+    <span class="code">console/server.py:116 HumanDeskExecutor · db.py:502 enqueue_handoff</span>
+    <div class="watch">👁 观察点：工作台左侧该会话出现<b>待接管徽标</b>；<code>console.db → handoff_queue</code> 新行（status=pending）。</div>
+  </div>
+
+  <div class="jcard human" id="h4"><h3>h4 · 坐席接管</h3>
+    <div class="d">坐席看交接包卡片 → 点【接管】：<code>queue.status=taken</code>、<code>conversations.mode=human</code>、系统消息"人工客服已接入，正在为您服务。"扇出两端。澄清中的会话不可接管（409）。</div>
+    <span class="code">console/server.py:929 api_takeover · db.py:536 take_handoff</span>
+    <div class="watch">👁 观察点：两端聊天窗同时出现灰色系统消息（WS 推送，无需刷新）。</div>
+  </div>
+
+  <div class="jcard human" id="h5"><h3>h5 · WS 双向聊天 + 工具面板 + AI 助手</h3>
+    <div class="d">人工期对话<b>双向持续</b>：客户/坐席都经同一条 WS 收发（首包 JWT 认证），服务端按会话扇出。坐席右侧工具面板：查用户（脱敏直查）、查商品（A2A 直调域）、工单/知识库操作；<b>左栏下半 AI 助手</b>可问主 Agent（同一条 understand→route→dispatch 链路），答案一键插入回复框。每次工具调用写审计。</div>
+    <span class="code">console/server.py:2159 ws_chat · :199 ConvSockets · console/tools.py:123 invoke · :2283 api_assist_ask</span>
+    <div class="watch">👁 观察点：审计出现 tool.call 行（result_summary 含脱敏手机号 138****1234）；工作台右栏「校验审计链」一键 verify。</div>
+  </div>
+
+  <div class="jcard human" id="h6"><h3>h6 · 交还 AI（回流）</h3>
+    <div class="d">坐席点【交还 AI】：<code>mode=ai</code> + 系统消息"已交回 AI 助手继续服务。"客户下一句同 contextId 重新走编排主链路（j3 起）——AI 答案与人工答复在同一条消息流里接力。</div>
+    <span class="code">console/server.py:959 api_return</span>
+    <div class="watch">👁 观察点：交还后客户再问，AI 正常接答（e2e 转人工全环实测）；泳道图场景 C 的 D9 即此步。</div>
+  </div>
+
+  <div class="note">相关：<a class="x" href="tour.html">← 总览</a> ｜ 单图全出口：<a class="x" href="flow.html">flow.html</a> · 分道时序：<a class="x" href="swimlane.html">swimlane.html</a> ｜ 各站实现细节：modules/orchestrator.html · modules/console.html · modules/merchandising.html · modules/shared.html</div>
+
+<script>
+// 锚点兜底（与 tour.html 同款）
+(function () {
+  function go() {
+    var h = location.hash.slice(1);
+    if (!h) return;
+    var el = document.getElementById(h);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  window.addEventListener("hashchange", go);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
+  else go();
+})();
+</script>
+</body>
+</html>

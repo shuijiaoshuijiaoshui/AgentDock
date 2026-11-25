@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>演示商家后台 · AgentDock</title>
+<link rel="stylesheet" href="static/portal.css">
+</head>
+<body>
+<div class="portal">
+  <aside class="nav">
+    <div class="logo"><span class="dot"></span>演示商家后台</div>
+    <button class="nav-item active" data-view="home" type="button">经营概览</button>
+    <button class="nav-item" data-view="orders" type="button">订单管理</button>
+    <button class="nav-item" data-view="catalog" type="button">商品与库存</button>
+    <button class="nav-item" data-view="finance" type="button">财务对账</button>
+    <button class="nav-item support" data-support="1" type="button">在线客服</button>
+    <div class="nav-foot">演示壳 · 客服为真实接口</div>
+  </aside>
+
+  <main class="stage">
+    <header class="topbar">
+      <div>
+        <div class="title">商家经营后台（演示壳）</div>
+        <div class="sub">侧边栏「在线客服」= 同源内嵌；右上角 = 独立窗口</div>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn" id="open-popup" type="button">独立窗口打开客服</button>
+    </header>
+
+    <section class="content" id="content">
+      <div class="hero">
+        <h2>在线客服 · 接入演示</h2>
+        <p>客服页由同一个 console 服务提供，与本页同源：
+          Cookie 登录、CSRF 双提交、WebSocket 实时消息都直接复用，没有跨域 iframe。</p>
+      </div>
+      <div class="tiles">
+        <button class="tile" data-support="1" type="button">
+          <b>形态一：侧边抽屉</b>
+          <span>点击后在右侧内嵌打开客服会话（同源 iframe），关闭即收起。</span>
+        </button>
+        <button class="tile" id="tile-popup" type="button">
+          <b>形态二：独立弹窗</b>
+          <span>window.open 打开独立客服窗口，适合商家后台已有复杂布局时使用。</span>
+        </button>
+      </div>
+      <div class="note">
+        本页只模拟商家后台入口，不含任何业务数据；订单、对账、卡片与转人工都走真实后端接口。
+      </div>
+    </section>
+  </main>
+
+  <aside class="support-panel hidden" id="support-panel">
+    <div class="support-head">
+      <b>在线客服</b>
+      <span class="spacer"></span>
+      <button class="mini" id="panel-popup" type="button">新窗口</button>
+      <button class="mini" id="close-support" type="button">收起</button>
+    </div>
+    <iframe id="support-frame" title="在线客服" data-src="customer"></iframe>
+  </aside>
+</div>
+
+<button class="launcher hidden" id="launcher" type="button">客服</button>
+
+<script type="module" src="static/portal.js"></script>
+</body>
+</html>

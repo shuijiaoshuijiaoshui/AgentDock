@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDock · 人工坐席工作台</title>
+<link rel="stylesheet" href="static/app.css">
+<link rel="stylesheet" href="static/workbench.css?v=20261104">
+</head>
+<body>
+<div class="wb-shell">
+  <header class="wb-top">
+    <div class="wb-brand"><span class="brand-dot"></span>AgentDock · 坐席工作台
+      <span class="tag">ToB</span>
+    </div>
+    <div class="wb-top-meta">
+      <span id="who">未登录</span>
+      <span id="conn" class="conn">—</span>
+      <button class="icon-btn" id="logout-link" type="button">退出</button>
+    </div>
+  </header>
+
+  <main class="wb-main" id="wb-main">
+    <!-- 左栏：队列 -->
+    <aside class="col queue-col" id="queue-col">
+      <div class="col-head">
+        <div class="tabs" id="queue-tabs">
+          <button class="tab active" data-tab="pending" type="button">待接入<span class="count" id="count-pending">0</span></button>
+          <button class="tab" data-tab="review" type="button">待复核<span class="count" id="count-review">0</span></button>
+          <button class="tab" data-tab="human" type="button">人工中<span class="count" id="count-human">0</span></button>
+          <button class="tab" data-tab="closed" type="button">已结束<span class="count" id="count-closed">0</span></button>
+        </div>
+        <div class="filters">
+          <input id="queue-search" placeholder="搜索客户 / 会话 / 内容">
+          <select id="queue-priority">
+            <option value="">全部优先级</option>
+            <option value="high">高优先级</option>
+            <option value="medium">中优先级</option>
+            <option value="normal">普通</option>
+          </select>
+          <select id="queue-sort">
+            <option value="waiting">等待最久</option>
+            <option value="priority">优先级</option>
+            <option value="recent">最近更新</option>
+          </select>
+        </div>
+      </div>
+      <div class="queue-list" id="queue-list"><div class="empty">加载中…</div></div>
+      <div class="queue-foot">
+        <span id="queue-total" class="hint"></span>
+        <button class="btn-ghost" id="queue-more" type="button">加载更多</button>
+      </div>
+    </aside>
+
+    <!-- 中栏：摘要 + 消息 + 操作 -->
+    <section class="col chat-col" id="chat-col">
+      <div class="chat-head">
+        <div class="chat-title-wrap">
+          <b id="chat-title">选择左侧会话</b>
+          <div class="sub" id="chat-sub">从队列中选择一个会话开始</div>
+        </div>
+        <span class="badge ai" id="chat-badge">—</span>
+      </div>
+
+      <div class="summary" id="summary-panel">
+        <div class="summary-top">
+          <b>会话摘要</b>
+          <span class="hint" id="summary-cached"></span>
+          <span class="spacer"></span>
+          <button class="mini" id="summary-refresh" type="button">刷新</button>
+        </div>
+        <div class="summary-body" id="summary-body">
+          <div class="empty">选择会话后生成摘要</div>
+        </div>
+      </div>
+
+      <div class="chat" id="chat"><div class="empty">尚未选择会话</div></div>
+      <div class="pending-wrap hidden" id="pending-wrap"></div>
+      <div class="quick-row" id="quick-row"></div>
+
+      <div class="composer">
+        <textarea id="agent-input" rows="2" placeholder="以人工坐席身份回复客户…"></textarea>
+        <div class="composer-side">
+          <button class="btn-primary" id="btn-send" type="button" disabled>发送</button>
+          <button class="btn-ghost" id="btn-note" type="button">内部备注</button>
+        </div>
+      </div>
+
+      <div class="note-panel hidden" id="note-panel">
+        <div class="note-head"><b>内部备注（客户不可见）</b>
+          <span class="spacer"></span>
+          <button class="mini" id="note-close" type="button">收起</button>
+        </div>
+        <div class="note-list" id="note-list"></div>
+        <div class="note-input">
+          <textarea id="note-input" rows="2" placeholder="记录处理过程 / 承诺 / 风险点…"></textarea>
+          <button class="btn-primary" id="note-add" type="button">添加备注</button>
+        </div>
+      </div>
+
+      <div class="action-bar" id="action-bar">
+        <button class="btn-warn" id="btn-takeover" type="button" disabled>接管</button>
+        <button class="btn-ghost" id="btn-return" type="button" disabled>交还 AI</button>
+        <button class="btn-ghost" id="btn-close" type="button" disabled>关闭 / 转复核</button>
+        <button class="btn-ok hidden" id="btn-review-approve" type="button">复核通过</button>
+        <button class="btn-danger hidden" id="btn-review-reject" type="button">复核驳回</button>
+        <span class="spacer"></span>
+        <select id="transfer-agent" class="transfer-select"></select>
+        <button class="btn-ghost" id="btn-transfer" type="button" disabled>转交</button>
+      </div>
+
+      <details class="trace" id="trace-panel">
+        <summary>Agent trace（intent → route → domain → tool → arbitrate → synthesize → deliver）</summary>
+        <div class="trace-body" id="trace-body"><div class="empty">选择会话后加载</div></div>
+      </details>
+    </section>
+
+    <!-- 右栏：360 / 工单 / 知识库 / 统计 / 审批 -->
+    <aside class="col side-col" id="side-col">
+      <div class="side-tabs" id="side-tabs">
+        <button class="side-tab active" data-side="360" type="button">客户 360</button>
+        <button class="side-tab" data-side="tickets" type="button">工单</button>
+        <button class="side-tab" data-side="knowledge" type="button">知识库</button>
+        <button class="side-tab" data-side="assist" type="button">AI 查询</button>
+        <button class="side-tab hidden" data-side="stats" id="tab-stats" type="button">统计</button>
+        <button class="side-tab" data-side="approvals" id="tab-approvals" type="button">审批</button>
+      </div>
+      <div class="side-body" id="side-body">
+        <section class="side-pane" id="side-360"><div class="empty">选择会话后加载客户 360</div></section>
+        <section class="side-pane hidden" id="side-tickets"></section>
+        <section class="side-pane hidden" id="side-knowledge"></section>
+        <section class="side-pane hidden" id="side-assist"></section>
+        <section class="side-pane hidden" id="side-stats"></section>
+        <section class="side-pane hidden" id="side-approvals"></section>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<!-- 登录浮层 -->
+<div class="login" id="login">
+  <div class="login-card">
+    <h3>坐席 / 主管登录</h3>
+    <label for="tenant">租户</label>
+    <select id="tenant">
+      <option value="t_demo">演示商家（t_demo）</option>
+      <option value="t_other">第二租户（t_other）</option>
+    </select>
+    <label for="username">账号</label>
+    <input id="username" value="agent" autocomplete="username">
+    <label for="password">密码</label>
+    <input id="password" type="password" value="demo123" autocomplete="current-password">
+    <button class="btn-primary" id="login-btn" type="button">登录</button>
+    <div class="login-error hidden" id="login-error"></div>
+    <div class="hint">演示账号：agent / supervisor / finance / admin，密码 demo123；<br>
+      审批高价值退款需 supervisor + finance（双人复核）。</div>
+  </div>
+</div>
+
+<script type="module" src="static/workbench.js?v=20261104"></script>
+</body>
+</html>

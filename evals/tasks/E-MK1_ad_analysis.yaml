@@ -1,0 +1,25 @@
+id: E-MK1
+title: 投流效果分析与方案（营销域单链，toB）
+group: 营销经营分析
+surface: a2a
+tenant: t_demo
+services: [orchestrator, marketing]
+steps:
+  - do: a2a
+    text: 看下最近14天的投流效果
+    customer_id: CU-1001
+rubrics:
+  - {dim: completion, check: state_completed, desc: 任务完成态}
+  - {dim: completion, check: artifacts_set, args: {equals: [marketing]},
+     desc: 单域链只落营销域产物}
+  - {dim: completion, check: artifact_field,
+     args: {domain: marketing, path: data.total.roi, equals: 1.64},
+     desc: 整体 ROI 计算正确（剧本 83450/51010）}
+  - {dim: completion, check: artifact_field,
+     args: {domain: marketing, path: authority_domain, equals: marketing},
+     desc: 产物带权威域标记}
+  - {dim: completion, check: reply_contains, args: {all: ["ROI", "加投", "暂停"]},
+     desc: 人话摘要含 ROI 与分计划方案}
+  - {dim: completion, check: reply_not_contains,
+     args: {any: ["tenant_id", "biz_key", "context_id"]},
+     desc: 人话摘要不泄露内部字段}

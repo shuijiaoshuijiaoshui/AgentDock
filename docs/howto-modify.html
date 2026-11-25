@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentDock · 修改食谱</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.7; }
+  h2 { font-size:17px; margin:26px 0 10px; padding-left:10px; border-left:4px solid var(--brand); scroll-margin-top:120px; }
+  code { font-family:Consolas,monospace; font-size:11.5px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 5px; }
+  .recipe { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:10px; padding:12px 16px; margin:12px 0; }
+  .recipe h3 { font-size:14.5px; margin-bottom:6px; }
+  .recipe ol { margin:6px 0 6px 18px; }
+  .recipe li { font-size:12.5px; color:var(--muted); line-height:1.8; }
+  .recipe li b { color:var(--text); }
+  .recipe .env { margin-top:6px; font-size:11.5px; color:var(--warn); }
+  .recipe .verify { margin-top:6px; font-size:12px; background:#f0f6ff; border-radius:6px; padding:6px 10px; color:#26313d; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+  a.x { color:var(--brand); text-decoration:none; border-bottom:1px dashed #b7ebd4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="tour.html">← 返回总览</a> ｜ 新人第 3 步（附录）｜ 实现细节回 <a class="x" href="modules/orchestrator.html">orchestrator</a> · <a class="x" href="modules/shared.html">shared</a> · <a class="x" href="modules/console.html">console</a></div>
+  <h1>🔧 修改食谱</h1>
+  <div class="sub">
+    五道最常见修改的逐步食谱（每条都从当前代码推导并核对过行号）。<b>环境前提</b>：<code>uv sync</code> 已装依赖；本机无 Docker（<code>CHECKPOINTER=sqlite</code> 默认即可全链路跑）；
+    验证统一是 <code>uv run pytest -q</code>（当前 <b>261 用例</b>基线）+ <code>uv run python scripts/smoke.py</code>（需 dev_all 起着）。
+    最后对照代码校验：<b>2026-11-07</b>（防腐 = 改代码后 AI 重读重生成）。
+  </div>
+
+  <div class="recipe"><h3>① 新增一个意图并路由到已有域</h3>
+    <ol>
+      <li><b>路由表加一行</b>：<code>orchestrator/route_table.py:11 ROUTE_TABLE</code> 增加条目（如 <code>"promo_superpose": {"domains": ["merchandising"], "mode": "single"}</code>；mode 可选 single/parallel/serial/arbitrate）。</li>
+      <li><b>意图集合登记</b>：<code>orchestrator/graph.py:54 _INTENT_SET</code> 加同名意图（防 unknown 兜底吞掉）。</li>
+      <li><b>真实模型候选</b>：<code>orchestrator/prompts.py:3 UNDERSTAND_SYSTEM</code> 候选列表加一行，并把 <code>orchestrator/prompts.py:35 UNDERSTAND_VERSION</code> 升小版本（灰度纪律）。</li>
+      <li><b>fake 规则</b>：<code>orchestrator/graph.py:96 _rule_understand_base</code> 加关键词分支（注意顺序：越具体的放越前；无真 key 时冒烟用）。</li>
+      <li><b>域侧承接</b>：若需要新的委托话术，补 <code>orchestrator/graph.py:541 _delegation_text</code> 分支。</li>
+      <li><b>测试</b>：<code>tests/test_route_table.py</code> 加断言（含确定性 100 次）；模拟器页 <a class="x" href="rules-simulator.html">rules-simulator</a> 的转译同步（重生成时一并更新）。</li>
+    </ol>
+    <div class="verify">验证：uv run pytest tests/test_route_table.py tests/test_e2e_smoke.py -q 全绿；scripts/smoke.py 相应用例通过。</div>
+  </div>
+
+  <div class="recipe"><h3>② 新增第八个域（以"供应链域"为例；现有七域全部真实现，可任选一个当模板）</h3>
+    <ol>
+      <li><b>照模板起五件套</b>：复制 <code>domains/merchandising/</code> 的 tools/graph/card/server 结构到 <code>domains/supply/</code>（最新模板可看 <code>domains/customer/</code>，含 2a 的 360 工具）。工具→skill 映射照 <code>domains/merchandising/tools.py:149 TOOL_TO_SKILL</code>。</li>
+      <li><b>Card 换身份</b>：name/description/端口；新增端口字段（照 <code>shared/config.py:12 Settings</code> 现有 *_port；当前 8300–8309 已占满，需另选段）并补 <code>config.py:96 domain_url</code> 的映射表。</li>
+      <li><b>Mock 数据</b>：<code>scripts/seed_mock.py</code> 加表（预留与订单/SKU 的跨域关联列，照现有表）。</li>
+      <li><b>路由放行</b>：<code>orchestrator/route_table.py:11</code> 加意图行；若参与仲裁/串行，按 <code>arbitrate.py:16 FIELD_AUTHORITY</code> 声明权威字段、按 <code>route_table.py:37 SAGA_CHAINS</code> 注册补偿（写操作必须可撤销）。</li>
+      <li><b>接线</b>：<code>scripts/dev_all.py:20 SERVICES</code> 加入口、<code>infra/docker-compose.yml</code> 加服务、<code>README.md</code> 服务表同步。</li>
+      <li><b>e2e</b>：在 <code>tests/</code> 抄一个单域直连用例改端口；smoke 加一条。</li>
+    </ol>
+    <div class="env">⚠ 需要环境：sqlite 即可；若 CHECKPOINTER=postgres 需 Docker（本机不可用，见 tour 已知限制）。新域自动获得 Card JWS 签名（build_a2a_app 统一签发），无需额外接入。</div>
+    <div class="verify">验证：uv run pytest -q 全量绿；dev_all 起后 smoke 新增用例通过；GET /api/traces/{trace_id} 能看到新域 span。</div>
+  </div>
+
+  <div class="recipe"><h3>③ 给坐席工作台加一个只读工具</h3>
+    <ol>
+      <li><b>注册</b>：<code>console/tools.py:100 registry</code> 加条目（id/name/domain/params/render），id 与目标域 Card 的 skill 一致（如 <code>policy.answer</code>）。</li>
+      <li><b>invoke 路由</b>：<code>console/tools.py:123 invoke</code> 的 A2A 分支通用，一般无需改；坐席专属（直查库）才加分支（照 <code>console/tools.py:30 query_customer</code>）。</li>
+      <li><b>前端零改动</b>：工作台从 <code>/api/tools</code> 动态渲染（三栏 UI 通用面板）。</li>
+      <li><b>权限</b>：工具结果按调用者 tenant 过滤；敏感字段过 <code>shared/pii.py:46 mask_pii</code>；每次调用写审计（哈希链）。</li>
+    </ol>
+    <div class="verify">验证：uv run pytest tests/test_workbench_e2e.py -q；dev_all 起后在 workbench 右栏点新工具（或 scripts/browser_smoke.py 全流程）。</div>
+  </div>
+
+  <div class="recipe"><h3>④ 从 fake 模式切到真实 GLM</h3>
+    <ol>
+      <li><b>.env</b>：<code>LLM_PROVIDER=openai</code> + <code>ZHIPUAI_API_KEY=…</code>（键名见 <code>shared/config.py:12</code>；默认端点 <code>https://open.bigmodel.cn/api/paas/v4/</code>）。</li>
+      <li><b>模型名</b>：<code>LLM_SMALL_MODEL</code> / <code>LLM_MAIN_MODEL</code> 按账号可用型号改（默认 glm-4.6）。</li>
+      <li><b>注意</b>：understand 用 with_structured_output、域图用 bind_tools；M4 起 understand/synthesize 还会收到历史块（<code>graph.py:236 _history_block</code>）——真模型下指代解析由模型完成，fake 的规则继承不再生效。摘要生成在真模式下会多一次主模型调用（失败自动回落确定性拼接，<code>graph.py:299</code>）。</li>
+    </ol>
+    <div class="verify">验证：dev_all 起服务 → smoke.py 10/10（真模型下报文以模型输出为准；fake 规则分支不生效）。</div>
+  </div>
+
+  <div class="recipe"><h3>⑤ 新增一个"转人工"触发条件</h3>
+    <ol>
+      <li><b>信号采集</b>：轮次内可判定的信号加在 <code>orchestrator/graph.py:362 intake</code>（如新正则或 LLM 附加字段），存入 <code>orchestrator/state.py:29 OrchestratorState</code>（集合型字段记着配 reducer：dict 用 merge_dict、list 用 <b>merge_list</b>）。</li>
+      <li><b>接进条件边</b>：<code>orchestrator/graph.py:525 after_route</code> 的触发列表加一项。</li>
+      <li><b>原因透传</b>：<code>orchestrator/graph.py:1246 handoff</code> 的 reasons 列表同步（交接包要能解释"为什么转"）。</li>
+      <li><b>测试</b>：<code>tests/test_human_desk_unit.py</code> 加 after_route 断言 + e2e 加触发剧本。</li>
+    </ol>
+    <div class="env">⚠ 跨轮才能判定的信号（如"客户情绪"）需要渠道层续传——照 wall_count / history 的 metadata 通道做（<code>console/server.py:555</code>），不要把状态塞进图。</div>
+    <div class="verify">验证：uv run pytest tests/test_human_desk_unit.py tests/test_human_desk_e2e.py -q 全绿。</div>
+  </div>
+
+  <div class="note">改完任意一项后：让 AI 重读 <a class="x" href="tour.html">tour.html 页脚清单</a>内文件重新生成导览（页脚日期会刷新）；并跑 <code>uv run python scripts/check_tour.py</code> 机械校验（文件/符号/链接/日期四类，含 <a class="x" href="flow.html">flow.html</a> 与 <a class="x" href="swimlane.html">swimlane.html</a>）。</div>
+</div>
+</body>
+</html>

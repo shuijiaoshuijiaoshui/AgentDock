@@ -1,0 +1,22 @@
+id: E-O2
+title: 退款三域串行链（售后→履约→财务）
+group: 跨域编排
+surface: a2a
+tenant: t_demo
+steps:
+  - do: a2a
+    text: SKU-A003 的退款，SO-2003 退到哪了
+    customer_id: CU-1003
+services: [orchestrator, aftersale, fulfillment, finance]
+rubrics:
+  - {dim: completion, check: state_completed, desc: 任务完成态}
+  - {dim: completion, check: artifacts_set,
+     args: {equals: [aftersale, fulfillment, finance]},
+     desc: 三跳串行产物齐备}
+  - {dim: completion, check: artifact_field,
+     args: {domain: finance, path: "data.0.amount", equals: 2199.0},
+     desc: 退款金额只认财务权威（2199）}
+  - {dim: completion, check: decision_log_has, args: {event: no_conflict},
+     desc: 裁决留痕 no_conflict}
+  - {dim: completion, check: reply_contains, args: {all: ["SO-2003"]},
+     desc: 回答包含订单号}

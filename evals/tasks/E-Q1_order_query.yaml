@@ -1,0 +1,17 @@
+id: E-Q1
+title: 订单查询（单域，客户真实 HTTP 路径）
+group: 单域查询
+surface: console
+tenant: t_demo
+username: customer
+services: [console, orchestrator, order]
+steps:
+  - do: send
+    text: 查询订单 SO-2001 的状态
+rubrics:
+  - {dim: completion, check: reply_contains, args: {all: ["SO-2001"]},
+     desc: 回答包含订单号}
+  - {dim: completion, check: reply_not_contains, args: {any: ["tenant_id", "biz_key", "context_id"]},
+     desc: 人话摘要不泄露内部字段}
+  - {dim: completion, check: card_present, args: {type: order},
+     desc: 返回订单卡片}

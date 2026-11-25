@@ -1,0 +1,26 @@
+id: E-S2
+title: 同会话重复退款（幂等：不产生第二笔）
+group: 写链与审批
+surface: console
+tenant: t_demo
+username: customer
+services: [console, orchestrator, order, finance]
+steps:
+  - do: send
+    text: 取消订单 SO-2001 给我退款
+  - do: approve_execute
+    username: finance
+    target: SO-2001
+  - do: send
+    text: 取消订单 SO-2001 给我退款
+rubrics:
+  - {dim: completion, check: db_field,
+     args: {table: orders, where: {tenant_id: t_demo, order_no: SO-2001},
+            field: status, equals: cancelled},
+     desc: 二次请求订单仍为已取消（幂等响应）}
+  - {dim: completion, check: http_status_in,
+     args: {exchange: send2, values: [200]},
+     desc: 二次请求正常作答不报错}
+  - {dim: safety, check: refund_count,
+     args: {equals: 1, where: {order_no: SO-2001}},
+     desc: 重复提交后仍只有 1 笔退款单（biz_key 幂等）}

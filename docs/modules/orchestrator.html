@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L2 · orchestrator/ · 编排主图</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.7; }
+  h2 { font-size:17px; margin:26px 0 10px; padding-left:10px; border-left:4px solid var(--brand); scroll-margin-top:120px; }
+  h2.sec { border-color:var(--sec); } h2.perf { border-color:var(--blue); }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+  a.x { color:var(--brand); text-decoration:none; border-bottom:1px dashed #b7ebd4; }
+  code { font-family:Consolas,monospace; font-size:11.5px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 5px; }
+  .node { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:10px; padding:12px 16px; margin:8px 0; }
+  .node .d { font-size:12.5px; color:var(--muted); line-height:1.7; margin-top:4px; }
+  .node .d b { color:var(--text); }
+  .code { display:inline-block; font-family:Consolas,monospace; font-size:11px; color:#1890ff; background:#f0f6ff; border-radius:4px; padding:1px 6px; margin-top:6px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:6px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .card h3 { font-size:13.5px; margin-bottom:4px; }
+  .card .d { font-size:12.5px; color:var(--muted); line-height:1.65; }
+  .card .d b { color:var(--text); }
+  table.t { width:100%; border-collapse:collapse; margin:8px 0; background:#fff; border-radius:10px; overflow:hidden; }
+  table.t th, table.t td { border:1px solid var(--line); padding:7px 10px; font-size:12.5px; text-align:left; vertical-align:top; }
+  table.t th { background:#eaf4ff; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  #mm, #mflow { margin:8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="../tour.html">← 返回总览</a> ｜ 全出口单图 <a class="x" href="../flow.html">flow.html</a> ｜ 旅程锚点 <a class="x" href="../journey.html#j3">J3–J8</a> · <a class="x" href="../journey.html#h1">H1</a> ｜ 相关 <a class="x" href="shared.html">shared</a> · <a class="x" href="merchandising.html">merchandising</a></div>
+
+  <div id="mm"></div>
+
+  <h1>🧠 orchestrator/ · 编排主图（一主）</h1>
+  <div class="sub">五节结构：定位 / 对外接口 / 内部结构 / 核心代码流程 / 注意点。每个论断标代码出处，可对照源码验证。<br>
+  最后对照代码校验：<b>2026-11-07</b>（防腐 = 改代码后 AI 重读重生成）。</div>
+
+  <h2>模块定位</h2>
+  <div class="node"><b>🎯 一句话说清：把一句自然语言变成一条确定性执行的域链，并把结果合成人话</b>
+    <div class="d">特色设计：<b>LLM 只做理解与合成，路由是查表</b>（AC-21：同输入 100 次同一条域链，tests/test_route_table.py 可执行断言）。全部"提前收尾"（澄清/拒答/转人工）都是图的条件边，不是 prompt 约束。M4 起它还负责<b>多轮历史</b>：understand/synthesize 注入摘要+近 6 轮，并在交付侧滚动更新摘要。它自己也是一张 LangGraph 图 + 一个 A2A Server（客户/坐席对它而言就是普通客户端）。</div>
+    <span class="code">orchestrator/graph.py:1319 build_orchestrator_graph · server.py（:8300）· orchestrator/state.py:29 OrchestratorState</span>
+  </div>
+
+  <h2 class="perf">对外接口（谁调它 / 它调谁）</h2>
+  <div class="grid">
+    <div class="card"><h3>⬅️ 被谁调用</h3>
+      <div class="d">console 的 <code>handle_customer_message</code>（客户每句话，J2）、坐席 AI 助手 <code>api_assist_ask</code>（toB 入口）、tests e2e 与 smoke.py 直连。上游无编排（它是最高编排者）。</div>
+      <span class="code">console/server.py:586 · :2283 · scripts/smoke.py</span></div>
+    <div class="card"><h3>➡️ 它调谁</h3>
+      <div class="d">七域 Server（domain_call 扇出；serial/arbitrate 按 Plan.mode）；人工坐席 :8307（handoff）；GLM 小/主模型；自身 TaskStore+checkpointer；审计与 trace 横切随 delegate 逐跳发生。</div>
+      <span class="code">orchestrator/graph.py:886 domain_call · :1246 handoff · route_table.py:99 domain_base_url</span></div>
+  </div>
+
+  <h2>内部结构（逐文件表）</h2>
+  <table class="t">
+    <tr><th>文件</th><th>职责</th><th>关键符号</th></tr>
+    <tr><td>graph.py</td><td>主图 <b>12 节点</b> + 条件边 + fake 规则分类（含指代继承）+ 历史块/滚动摘要 + 交接包组装</td><td><b>graph.py:362</b> intake · <b>:466</b> understand · <b>:505</b> route · <b>:525</b> after_route · <b>:666</b> advance · <b>:711/:756</b> arbitrate/serial · <b>:797</b> saga_compensate · <b>:886</b> domain_call · <b>:1017</b> ask_user · <b>:1099</b> synthesize · <b>:1181</b> deliver · <b>:1228</b> nomatch · <b>:1246</b> handoff · <b>:1311</b> smalltalk · <b>:1319</b> build_orchestrator_graph · <b>:1362</b> orchestrator_artifact_builder</td></tr>
+    <tr><td>route_table.py</td><td>纯配置路由表（<b>27 意图</b>：single/parallel/serial/arbitrate/smalltalk/handoff）+ Saga 补偿注册</td><td><b>route_table.py:11</b> ROUTE_TABLE · <b>:37</b> SAGA_CHAINS · <b>:83</b> LOW_CONFIDENCE_THRESHOLD=0.6 · <b>:86</b> route_plan · <b>:99</b> domain_base_url</td></tr>
+    <tr><td>arbitrate.py</td><td>权威源裁决纯函数族：字段级清洗 + 上游否决 + 快照漂移（全禁 LLM）</td><td><b>arbitrate.py:16</b> FIELD_AUTHORITY · <b>:41</b> arbitrate_fields · <b>:74</b> veto_reason · <b>:107</b> arbitrate_value · <b>:32</b> SNAPSHOT_DRIFT=300s</td></tr>
+    <tr><td>state.py</td><td>OrchestratorState：消息/计划/产物/裁决日志/碰壁计数/<b>history</b>；并行安全 reducer</td><td><b>state.py:14</b> merge_dict · <b>:18</b> merge_list · <b>:29</b> OrchestratorState · <b>:59</b> history</td></tr>
+    <tr><td>prompts.py</td><td>understand/synthesize 模板与版本号（灰度留位；M4 双双升版）</td><td><b>prompts.py:35</b> understand@1.5 · <b>:45</b> synthesize@1.1</td></tr>
+    <tr><td>server.py</td><td>:8300 入口：Card + 执行器 + checkpointer lifespan</td><td>orchestrator/server.py lifespan · artifact_builder 注入</td></tr>
+  </table>
+
+  <h2 class="perf">核心代码流程（一图流 · 节点注解见下表）</h2>
+  <div id="mflow"></div>
+  <div class="note">出口分支（分色边：红=反问/转人工/补偿，橙=零 LLM 拒答）：</div>
+  <div id="mflow-branches"></div>
+  <table class="t">
+    <tr><th>节点</th><th>注解</th><th>出处</th></tr>
+    <tr><td>intake</td><td>清洗[:2000]、mask_pii、_RISK_RE 高风险词、装载 context_id/wall_count/<b>history</b>、生成 trace_id/snapshot_id</td><td><b>graph.py:362</b> · :73 _RISK_RE · state.py:59</td></tr>
+    <tr><td>understand</td><td>GLM with_structured_output(Understanding)；<b>历史块并入 prompt（@1.5）</b>；fake 走 rule_understand+<b>指代槽位继承</b>；低置信且未澄清且非高风险 → interrupt（top2 选项）</td><td><b>graph.py:466</b> · :338 _classify · :236 _history_block · :91 _history_carry_slots</td></tr>
+    <tr><td>澄清挂起</td><td>Task=input-required；console 记 pending_task_id；回填 → resume → 重分类；重启后仍可续（AC-14）</td><td><b>graph.py:466</b> 分支 · a2a_langgraph.py:124</td></tr>
+    <tr><td>route</td><td>查 ROUTE_TABLE（27 意图）；after_route 顺序：转人工三条件 → nomatch → smalltalk → advance</td><td><b>graph.py:505 / :525</b></td></tr>
+    <tr><td>advance</td><td>拓扑调度：每轮 Send"入边全部完成"的域；parallel 单层并发 / serial 逐跳 / arbitrate 分层 DAG；上游否决取消下游</td><td><b>graph.py:666</b> · :711/:756 · arbitrate.py:74</td></tr>
+    <tr><td>domain_call</td><td>_delegation_text 转自然语言 → delegate（Card 验签+缓存）；completed 收 Artifact / input-required → ask_user / 异常 → error 占位局部交付</td><td><b>graph.py:886 / :1017</b> · a2a_client.py:112</td></tr>
+    <tr><td>saga_compensate</td><td>写链失败 → 按 completed_writes 逆序调补偿（SAGA_CHAINS 注册），biz_key 幂等；失败升级人工</td><td><b>graph.py:797</b> · route_table.py:37</td></tr>
+    <tr><td>nomatch</td><td>拒答+替代路径；wall_count+1；≥2 当场转 handoff（after_nomatch）</td><td><b>graph.py:1228 / :1241</b></td></tr>
+    <tr><td>handoff</td><td>组装交接包（含<b>渠道层真实近 6 轮</b>）→ delegate(humandesk)；成功"已为您转接人工客服"，失败兜底热线话术</td><td><b>graph.py:1246</b></td></tr>
+    <tr><td>synthesize→deliver</td><td>arbitrate_fields 权威清洗 + 快照漂移 → 主模型合成（载荷带历史块）→ <b>生成滚动摘要</b> → deliver 校验 authority → final_answer（handoff/wall_count/session_summary 回传）</td><td><b>graph.py:1099 / :1181 / :1362</b> · :299 _maybe_session_summary</td></tr>
+  </table>
+
+  <h2 class="sec" id="reducer">注意点（设计取舍与已知边界）</h2>
+  <div class="grid">
+    <div class="card"><h3>🟡 reducer：dict 用 merge_dict，list 必须用 merge_list</h3>
+      <div class="d">技术方案示意曾把 merge_dict 配在 decision_log 等 list 字段——LangGraph 每次更新都会 <code>{**list}</code> 直接 TypeError。<b>state.py:18 merge_list</b>（left+right）修正，文件头注释写明防复发。并行 Send 前这是硬前提。</div>
+      <span class="code">orchestrator/state.py:14-21</span></div>
+    <div class="card"><h3>✅ 碰壁计数的跨 Task 通道</h3>
+      <div class="d">每轮对话是新 Task，图状态会重置——碰壁次数存在 console（conversations.wall_count），每轮经<b>请求级 metadata</b> 进图（intake 读），nomatch +1 后经 Artifact 回传 console 落库。<b>M4 的 history 用同一条通道</b>（摘要+近 6 轮随 metadata 进、session_summary 随 artifact 出）——渠道层持会话态、编排层持任务态，边界一致。</div>
+      <span class="code">graph.py:362 intake · console/server.py:555 · db.py:991</span></div>
+    <div class="card"><h3>✅ 澄清只问一次</h3>
+      <div class="d">understand 的 interrupt 条件是 <code>clarify_count &lt; 1</code>——resume 重入同一节点时 interrupt() 返回回填值而不是再次暂停（LangGraph 按 call 位次匹配），杜绝连环追问（PRD 6.1.1）。高风险词直接跳过澄清转人工。</div>
+      <span class="code">graph.py:476 附近 · :73 _RISK_RE</span></div>
+    <div class="card"><h3>✅ 多轮历史注入（M4，替代旧"未注入"限制）</h3>
+      <div class="d">understand/synthesize 注入 <code>_history_block</code>（摘要+近 6 轮，逐轮 mask_pii）；fake 规则支持指代继承（扫描顺序：最近窗口 → 掉窗轮次 carry_turns → 摘要文本）；<code>_maybe_session_summary</code> 仅在出现掉窗轮次时增量生成（fake 确定性拼接 / 主模型一次调用，失败回落），经 artifact 回写 console 落库。已知边界：assist 会话（api_assist_ask）未接历史注入。</div>
+      <span class="code">graph.py:236 _history_block · :91 _history_carry_slots · :299 _maybe_session_summary</span></div>
+    <div class="card"><h3>🟡 裁决禁 LLM、写必须可撤销</h3>
+      <div class="d">跨域冲突按字段权威矩阵清洗（arbitrate.py:16），丢弃值留档 decision_log；串行链上游否决由 veto_reason 判定；每个写 skill 必须在 SAGA_CHAINS 注册补偿才允许进跨域编排——"没有补偿的写不允许出现"。</div>
+      <span class="code">arbitrate.py:41/:74/:107 · route_table.py:37 SAGA_CHAINS</span></div>
+  </div>
+
+  <div class="note" style="margin-top:16px">相关：merchandising.html（被委托方）· console.html（上游渠道）· <a class="x" href="../flow.html">流程图（全出口）</a> · <a class="x" href="../rules-simulator.html">路由表模拟器</a> ｜ <a class="x" href="../tour.html">← 总览</a></div>
+</div>
+<script src="../assets/renderFlow.js"></script>
+<script>
+renderFlow("mm", { small: true,
+  rows: [["cust", "console", "orch", "merch", "sec"]],
+  nodes: {
+    cust:  { label: "客户页", sub: "WS/REST", color: "gray" },
+    console:{ label: "console :8307", sub: "人工坐席", color: "green", href: "console.html" },
+    orch:  { label: "编排 :8300", sub: "主图", color: "green", href: "orchestrator.html", current: true },
+    merch: { label: "域 Agent", sub: "×7", color: "green", href: "merchandising.html" },
+    sec:   { label: "shared/ 桥接层", sub: "SDK↔LangGraph", color: "blue", href: "shared.html" }
+  },
+  edges: [
+    { from: "cust", to: "console", color: "gray" },
+    { from: "console", to: "orch", color: "green" },
+    { from: "orch", to: "merch", color: "green" },
+    { from: "merch", to: "sec", color: "gray" }
+  ]
+});
+renderFlow("mflow", { small: true,
+  rows: [["intake", "understand", "route", "advance"],
+         ["dc", "synth", "deliver", "end"]],
+  nodes: {
+    intake:    { label: "intake", sub: "脱敏+历史装载", color: "green" },
+    understand:{ label: "understand", sub: "LLM+历史注入", color: "green" },
+    route:     { label: "route", sub: "27 意图查表", color: "orange" },
+    advance:   { label: "advance", sub: "Send 拓扑调度", color: "green" },
+    dc:        { label: "domain_call", sub: "验签+委托（×N）", color: "green" },
+    synth:     { label: "synthesize", sub: "裁决清洗+摘要", color: "green" },
+    deliver:   { label: "deliver", sub: "权威校验", color: "green" },
+    end:       { label: "final_answer", sub: "回 console", color: "blue" }
+  },
+  edges: [
+    { from: "intake", to: "understand", color: "green" },
+    { from: "understand", to: "route", color: "green" },
+    { from: "route", to: "advance", color: "green" },
+    { from: "advance", to: "dc", color: "green", label: "Send" },
+    { from: "dc", to: "synth", color: "gray", label: "收齐出口" },
+    { from: "synth", to: "deliver", color: "green" },
+    { from: "deliver", to: "end", color: "green" }
+  ]
+});
+// 分支出色边：同列上下节点 + 分色边（不画菱形）
+renderFlow("mflow-branches", { small: true,
+  rows: [["src", "clarify", "nomatch", "handoff"], ["saga", "", "", ""]],
+  nodes: {
+    src:     { label: "出口分流", sub: "条件边 after_route 等", color: "gray" },
+    clarify: { label: "澄清 interrupt", sub: "input-required→resume", color: "red" },
+    nomatch: { label: "nomatch 拒答", sub: "wall+1", color: "orange" },
+    handoff: { label: "handoff 转人工", sub: "交接包→console", color: "red" },
+    saga:    { label: "saga_compensate", sub: "写链失败逆序补偿", color: "red" }
+  },
+  edges: [
+    { from: "src", to: "clarify", color: "red", label: "conf<0.6" },
+    { from: "src", to: "nomatch", color: "orange", label: "意图未命中" },
+    { from: "nomatch", to: "handoff", color: "red", label: "wall≥2" },
+    { from: "src", to: "saga", color: "red", label: "写链失败" }
+  ]
+});
+</script>
+</body>
+</html>

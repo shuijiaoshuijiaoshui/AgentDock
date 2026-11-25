@@ -1,0 +1,27 @@
+id: E-R2
+title: 局部交付（杀政策域→并行降级不拒答）
+group: 鲁棒性与记忆
+surface: a2a
+tenant: t_demo
+steps:
+  - do: kill
+    service: policy
+  - do: a2a
+    text: SKU-A001 坏了，保修内还是保修外
+    customer_id: CU-1001
+  - do: start
+    service: policy
+services: [orchestrator, aftersale, merchandising]
+rubrics:
+  - {dim: completion, check: state_completed,
+     desc: 单域故障不拖垮整链（仍 COMPLETED）}
+  - {dim: completion, check: artifacts_set,
+     args: {equals: [aftersale, policy, merchandising]},
+     desc: 故障域 error 占位、其余域产物完好（局部交付）}
+  - {dim: robustness, check: artifact_field_contains,
+     args: {domain: policy, path: data.error, contains: unreachable},
+     desc: 政策域标记不可达（而非编造数据）}
+  - {dim: robustness, check: degraded_flag, args: {domain: aftersale},
+     desc: 售后降级标注 degraded=true（仅按 12 个月估算）}
+  - {dim: completion, check: reply_contains, args: {any: ["暂不可用", "12 个月"]},
+     desc: 回答明示降级依据}

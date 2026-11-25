@@ -1,0 +1,28 @@
+id: E-M1
+title: 多轮记忆（第 7 轮代词回指 + 滚动摘要落库）
+group: 鲁棒性与记忆
+surface: console
+tenant: t_demo
+username: customer
+services: [console, orchestrator, merchandising, customer]
+steps:
+  - do: send
+    text: SKU-A002 到手价多少
+  - do: send
+    text: 你好
+  - do: send
+    text: 七天无理由退货政策是什么
+  - do: send
+    text: 帮我看下 SO-2001 发货了吗
+  - do: send
+    text: 对账单 2026-01 查一下
+  - do: send
+    text: 我的客户资料
+  - do: send
+    text: 它多少钱
+rubrics:
+  - {dim: completion, check: session_summary_exists,
+     args: {contains: SKU-A002},
+     desc: 滚动摘要落库且覆盖掉窗首问}
+  - {dim: completion, check: reply_contains, args: {all: ["SKU-A002"]},
+     desc: 第 7 轮"它"解析回首轮商品（槽位继承）}

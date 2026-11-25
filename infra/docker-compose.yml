@@ -1,0 +1,209 @@
+# AgentDock：11 服务 + postgres 一键起（含 securityd 单写者）（编排 + 七域 + 营销分析 + 坐席全部真实现）。
+# 用法：docker compose -f infra/docker-compose.yml up -d --build
+# 只起基础设施（本机跑服务进程）：docker compose -f infra/docker-compose.yml up -d postgres
+# LLM：默认 fake（全链路不调真模型）；接真模型在 .env 写 LLM_PROVIDER=openai + ZHIPUAI_API_KEY
+
+name: agentdock
+
+x-svc: &svc_env
+  LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+  ZHIPUAI_API_KEY: ${ZHIPUAI_API_KEY:-}
+  CHECKPOINTER: postgres
+  POSTGRES_DSN: postgresql://agentdock:agentdock@postgres:5432/agentdock
+  AUTH_SECRET: ${AUTH_SECRET:-dev-jwt-secret-change-me}
+  AUTH_ISSUER: ${AUTH_ISSUER:-agentdock}
+  SHARED_DB_PATH: /app/shareddata/shared.db
+  # securityd 单写者：业务服务只经 HTTP 调用，不直写审计/审批库
+  SECURITY_MODE: remote
+  SECURITY_URL: http://securityd:8309
+  SECURITY_PORT: "8309"
+  AUDIT_SIGNING_KEY: ${AUDIT_SIGNING_KEY:-dev-audit-signing-key}
+  PII_MASKING_ENABLED: ${PII_MASKING_ENABLED:-true}
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
+  APPROVAL_REFUND_THRESHOLD: ${APPROVAL_REFUND_THRESHOLD:-500}
+  APPROVAL_PRICE_CHANGE_THRESHOLD: ${APPROVAL_PRICE_CHANGE_THRESHOLD:-500}
+  APPROVAL_INVOICE_THRESHOLD: ${APPROVAL_INVOICE_THRESHOLD:-1000}
+  APPROVAL_DUAL_THRESHOLD_MULTIPLIER: ${APPROVAL_DUAL_THRESHOLD_MULTIPLIER:-5}
+  # 旧版内部 token 仅保留给迁移脚本；业务鉴权已改 JWT
+  INTERNAL_TOKEN: ${INTERNAL_TOKEN:-dev-internal-token}
+  # 服务间互调走服务名（调用方覆盖项；空缺时回退 127.0.0.1 不可达）
+  MERCHANDISING_URL: http://merchandising:8301
+  MARKETING_URL: http://marketing:8310
+  ORDER_URL: http://order:8302
+  FULFILLMENT_URL: http://fulfillment:8303
+  AFTERSALE_URL: http://aftersale:8304
+  FINANCE_URL: http://finance:8305
+  POLICY_URL: http://policy:8306
+  CONSOLE_URL: http://console:8307
+  ORCHESTRATOR_URL: http://orchestrator:8300
+
+x-svc-volumes: &svc_volumes
+  - shareddata:/app/shareddata
+
+x-svc-depends: &svc_depends
+  postgres: { condition: service_healthy }
+  securityd: { condition: service_healthy }
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: agentdock
+      POSTGRES_PASSWORD: agentdock
+      POSTGRES_DB: agentdock
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/00-vector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentdock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  securityd:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SECURITY_MODE: local
+      SECURITY_DB_PATH: /app/shareddata/security.db
+      SHARED_DB_PATH: /app/shareddata/security.db
+      SERVICE_TARGET: security_service.server:app
+      SERVICE_PORT: "8309"
+    volumes: *svc_volumes
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8309/health', timeout=2)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  orchestrator:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: orchestrator.server:app
+      SERVICE_PORT: "8300"
+      PUBLIC_URL: http://orchestrator:8300
+    ports: ["8300:8300"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+  merchandising:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: domains.merchandising.server:app
+      SERVICE_PORT: "8301"
+      PUBLIC_URL: http://merchandising:8301
+    ports: ["8301:8301"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+  customer:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: domains.customer.server:app
+      SERVICE_PORT: "8308"
+      PUBLIC_URL: http://customer:8308
+    ports: ["8308:8308"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+  marketing:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: domains.marketing.server:app
+      SERVICE_PORT: "8310"
+      PUBLIC_URL: http://marketing:8310
+    ports: ["8310:8310"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+  aftersale:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: domains.aftersale.server:app
+      SERVICE_PORT: "8304"
+      PUBLIC_URL: http://aftersale:8304
+    ports: ["8304:8304"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+  policy:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: domains.policy.server:app
+      SERVICE_PORT: "8306"
+      PUBLIC_URL: http://policy:8306
+    ports: ["8306:8306"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+  console:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: console.server:app
+      SERVICE_PORT: "8307"
+      PUBLIC_URL: http://console:8307
+    ports: ["8307:8307"]
+    depends_on: *svc_depends
+    volumes:
+      - consoledata:/app/.data   # console.db（会话/工单/审计/坐席问答）持久化
+      - shareddata:/app/shareddata
+    restart: unless-stopped
+
+  order:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: domains.order.server:app
+      SERVICE_PORT: "8302"
+      PUBLIC_URL: http://order:8302
+    ports: ["8302:8302"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+  fulfillment:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: domains.fulfillment.server:app
+      SERVICE_PORT: "8303"
+      PUBLIC_URL: http://fulfillment:8303
+    ports: ["8303:8303"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+  finance:
+    build: { context: .., dockerfile: infra/Dockerfile }
+    environment:
+      <<: *svc_env
+      SERVICE_TARGET: domains.finance.server:app
+      SERVICE_PORT: "8305"
+      PUBLIC_URL: http://finance:8305
+    ports: ["8305:8305"]
+    volumes: *svc_volumes
+    depends_on: *svc_depends
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  consoledata:
+  shareddata:

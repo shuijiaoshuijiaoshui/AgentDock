@@ -1,0 +1,18 @@
+id: E-V3
+title: 语义召回·退款到账同义问法（仅 hybrid）
+group: 语义检索
+surface: console
+tenant: t_demo
+username: customer
+requires: hybrid
+services: [console, orchestrator, policy]
+steps:
+  - do: send
+    text: 货款多久能打回来，政策怎么说
+rubrics:
+  - {dim: completion, check: reply_contains,
+     args: {any: ["CLS-005", "到账", "工作日", "7-15", "7~15"]},
+     desc: 语义召回退款到账条款}
+  - {dim: completion, check: reply_not_contains,
+     args: {any: ["未找到权威条款"]},
+     desc: 不应退化为未找到}

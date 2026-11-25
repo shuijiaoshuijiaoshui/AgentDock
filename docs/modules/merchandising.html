@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L2 · domains/merchandising/ · 商品域（域模板）</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.7; }
+  h2 { font-size:17px; margin:26px 0 10px; padding-left:10px; border-left:4px solid var(--brand); scroll-margin-top:120px; }
+  h2.sec { border-color:var(--sec); } h2.perf { border-color:var(--blue); }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+  a.x { color:var(--brand); text-decoration:none; border-bottom:1px dashed #b7ebd4; }
+  code { font-family:Consolas,monospace; font-size:11.5px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 5px; }
+  .node { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:10px; padding:12px 16px; margin:8px 0; }
+  .node .d { font-size:12.5px; color:var(--muted); line-height:1.7; margin-top:4px; }
+  .node .d b { color:var(--text); }
+  .code { display:inline-block; font-family:Consolas,monospace; font-size:11px; color:#1890ff; background:#f0f6ff; border-radius:4px; padding:1px 6px; margin-top:6px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:6px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .card h3 { font-size:13.5px; margin-bottom:4px; }
+  .card .d { font-size:12.5px; color:var(--muted); line-height:1.65; }
+  .card .d b { color:var(--text); }
+  table.t { width:100%; border-collapse:collapse; margin:8px 0; background:#fff; border-radius:10px; overflow:hidden; }
+  table.t th, table.t td { border:1px solid var(--line); padding:7px 10px; font-size:12.5px; text-align:left; vertical-align:top; }
+  table.t th { background:#eaf4ff; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  #mm, #mflow { margin:8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="../tour.html">← 返回总览</a> ｜ 旅程锚点 <a class="x" href="../journey.html#j6">J6–J7</a> ｜ 相关 <a class="x" href="orchestrator.html">orchestrator</a> · <a class="x" href="shared.html">shared</a></div>
+
+  <div id="mm"></div>
+
+  <h1>🛒 domains/merchandising/ · 商品与营销域（域模板代表作）</h1>
+  <div class="sub">五节结构：定位 / 对外接口 / 内部结构 / 核心代码流程 / 注意点。每个论断标代码出处，可对照源码验证。<br>
+  最后对照代码校验：<b>2026-11-07</b>（防腐 = 改代码后 AI 重读重生成）。</div>
+
+  <h2>模块定位</h2>
+  <div class="node"><b>🎯 一句话说清：以"域 Agent"为单位立起全部规范的第一块样板——后续六域照抄即可</b>
+    <div class="d">4 个 skill（工具）+ 一张 ReAct 小图 + Mock SQLite。所有跨域规范在这里立标：工具先过权限（ensure_scope）、产物必带权威标注（authority/as_of/snapshot_id）、<b>域内禁止横向委托</b>（想跨域只能返回结论让编排重路由）。五件套结构（tools/graph/card/server/schemas）是七域同构的模板。</div>
+    <span class="code">domains/merchandising/graph.py:111 build_domain_graph · domains/merchandising/server.py:41 create_app · domains/merchandising/tools.py:148 TOOLS</span>
+  </div>
+
+  <h2 class="perf">对外接口（谁调它 / 它调谁）</h2>
+  <div class="grid">
+    <div class="card"><h3>⬅️ 被谁调用</h3>
+      <div class="d">编排 domain_call（J6，路由表 product_* 四意图 + warranty_check 并行域 + promo_arbitrate 估算支线）；console 工具面板 A2A 直调（绕过编排）；smoke.py 冒烟与 e2e。Card 经 build_a2a_app 自动附 ES256 签名（M4）。</div>
+      <span class="code">orchestrator/route_table.py:13-16 · console/tools.py · shared/a2a_langgraph.py:589</span></div>
+    <div class="card"><h3>➡️ 它依赖谁</h3>
+      <div class="d">mock.db（products/promos/coupons，infra/mockdata seed 生成）；GLM 主模型（bind_tools，fake 模式不调）；shared 桥接层（executor/taskstore/card 签名/trace）。<b>不依赖任何其他域</b>——横向委托禁令的样板。</div>
+      <span class="code">domains/merchandising/tools.py:27 _db · domains/merchandising/graph.py:111</span></div>
+  </div>
+
+  <h2>内部结构（逐文件表）</h2>
+  <table class="t">
+    <tr><th>文件</th><th>职责</th><th>关键符号</th></tr>
+    <tr><td>tools.py</td><td>4 个 @tool = Card 上的 4 个 skill；scope 拒绝结构化返回；查 Mock 库</td><td><b>tools.py:40</b> product_lookup · <b>:55</b> product_retrieve · <b>:75</b> compare_matrix · <b>:103</b> promo_evaluate · <b>:148</b> TOOLS · <b>:149</b> TOOL_TO_SKILL</td></tr>
+    <tr><td>graph.py</td><td>域 ReAct 小图：agent→tools→…→emit_artifact；fake 规则决策；产物摘要生成</td><td><b>graph.py:39</b> _fake_decide · <b>:74</b> _route_after_agent · <b>:79</b> emit_artifact · <b>:111</b> build_domain_graph · <b>:129</b> artifact_builder</td></tr>
+    <tr><td>card.py</td><td>AgentCard：5 skill（retrieve/lookup/compare/evaluate 等）</td><td>card.py build_card</td></tr>
+    <tr><td>server.py</td><td>:8301 入口：lifespan 进 checkpointer → 编译图 → bind 执行器 → build_a2a_app（Card 自动签名）</td><td><b>server.py:33</b> lifespan · <b>:41</b> create_app</td></tr>
+  </table>
+
+  <h2 class="perf">核心代码流程（一图流 · 节点注解见下表）</h2>
+  <div id="mflow"></div>
+  <table class="t">
+    <tr><th>节点</th><th>注解</th><th>出处</th></tr>
+    <tr><td>委托文本进</td><td>编排翻好的自然语言（"估算商品 SKU-A002 的到手价"）+ metadata（scope/trace_id/snapshot_id/身份）</td><td>orchestrator/graph.py:541 _delegation_text</td></tr>
+    <tr><td>agent</td><td>GLM bind_tools(TOOLS) 选工具与参数；fake 模式 _fake_decide 按关键词/正则选（对比≥2 sku / 优惠词 / SKU 正则 / 关键词搜索）</td><td><b>domains/merchandising/graph.py:39-72</b></td></tr>
+    <tr><td>tools</td><td>ToolNode 执行选中的 @tool；每个工具先 <b>require_scope</b>（token claim 校验，不匹配结构化 rejected，不进 LLM 上下文）；写审计</td><td><b>shared/authz.py:105</b> require_scope · tools.py:33 _rejected</td></tr>
+    <tr><td>emit_artifact</td><td>最后一个 ToolMessage 结果 → ArtifactBase（authority_domain=merchandising / as_of / snapshot_id / skill 名）</td><td><b>domains/merchandising/graph.py:79 emit_artifact</b></td></tr>
+    <tr><td>摘要出</td><td>artifact_builder 按 data 形状生成人话摘要（商品卡/矩阵/到手价估算，估算必标）</td><td><b>domains/merchandising/graph.py:129 artifact_builder</b></td></tr>
+  </table>
+
+  <h2 class="sec">注意点（设计取舍与已知边界）</h2>
+  <div class="grid">
+    <div class="card"><h3>✅ 工具=skill，一岗一权</h3>
+      <div class="d">Card 的 skill 与 @tool 一一对应（TOOL_TO_SKILL 映射写进 Artifact），权限、补偿、评测都挂这一层——不必一个 skill 起一个进程（PRD 3.3 纠偏后的结论）。七域共 27 个 @tool。</div>
+      <span class="code">domains/merchandising/tools.py:149</span></div>
+    <div class="card"><h3>✅ scope 只认 token claim（1A 收紧后）</h3>
+      <div class="d">1A 起 scope 一律来自验签后的 JWT claim（<code>shared/authz.py:105 require_scope</code>），metadata 自称无效；不匹配返回结构化 rejected（不进 LLM 上下文）。合同测试用显式错误 scope 验证拒绝路径；e2e 越权矩阵见 tests/test_authz_idor.py（21 例）。</div>
+      <span class="code">shared/authz.py:105 · tools.py:33 _rejected</span></div>
+    <div class="card"><h3>✅ 到手价必标"估算"</h3>
+      <div class="d">promo_evaluate 结果 estimate=True + 摘要带"估算值"——到手价口径权威在财务域（promo_arbitrate 仲裁，arbitrate.py:16 FIELD_AUTHORITY），营销侧数字永不冒充成交价；非权威字段在编排侧被丢弃留档。</div>
+      <span class="code">domains/merchandising/tools.py:103-145 · orchestrator/arbitrate.py:41</span></div>
+    <div class="card"><h3>🟡 compare.matrix 的输入约定</h3>
+      <div class="d">当前直接收 sku 串；PRD 设计是"只消费候选集 Artifact 不二次拉参"（防两处规格不一致）。多域产物引用留给后续演进（路由表 promo_arbitrate 已示范上游产物注入下游槽位的机制）。</div>
+      <span class="code">domains/merchandising/tools.py:75-101 · orchestrator/graph.py:711 _advance_arbitrate</span></div>
+  </div>
+
+  <div class="note" style="margin-top:16px">相关：orchestrator.html（谁在调）· shared.html（脚下桥）· <a class="x" href="../howto-modify.html">修改食谱：点亮下一个域</a> ｜ <a class="x" href="../tour.html">← 总览</a></div>
+</div>
+<script src="../assets/renderFlow.js"></script>
+<script>
+renderFlow("mm", { small: true,
+  rows: [["cust", "console", "orch", "merch", "sec"]],
+  nodes: {
+    cust:  { label: "客户页", sub: "WS/REST", color: "gray" },
+    console:{ label: "console :8307", sub: "人工坐席", color: "green", href: "console.html" },
+    orch:  { label: "编排 :8300", sub: "主图", color: "green", href: "orchestrator.html" },
+    merch: { label: "商品域 :8301", sub: "ReAct", color: "green", href: "merchandising.html", current: true },
+    sec:   { label: "shared/ 桥接层", sub: "SDK↔LangGraph", color: "blue", href: "shared.html" }
+  },
+  edges: [
+    { from: "cust", to: "console", color: "gray" },
+    { from: "console", to: "orch", color: "green" },
+    { from: "orch", to: "merch", color: "green" },
+    { from: "merch", to: "sec", color: "gray" }
+  ]
+});
+renderFlow("mflow", { small: true,
+  rows: [["in", "agent", "tools"], ["emit", "summary", "out"]],
+  nodes: {
+    in:    { label: "委托文本进", sub: "自然语言+metadata", color: "blue" },
+    agent: { label: "agent 选工具", sub: "GLM bind_tools/fake 规则", color: "green" },
+    tools: { label: "tools 查 Mock", sub: "require_scope 前置", color: "blue" },
+    emit:  { label: "emit_artifact", sub: "authority/as_of/snapshot", color: "green" },
+    summary:{ label: "人话摘要", sub: "artifact_builder", color: "green" },
+    out:   { label: "Artifact 回编排", sub: "DataPart+TextPart", color: "gray" }
+  },
+  edges: [
+    { from: "in", to: "agent", color: "green" },
+    { from: "agent", to: "tools", color: "green", label: "tool_calls" },
+    { from: "tools", to: "agent", color: "gray", dashed: true, label: "ToolMessage 回灌" },
+    { from: "agent", to: "emit", color: "green", label: "无 tool_calls 时收口" },
+    { from: "emit", to: "summary", color: "green" },
+    { from: "summary", to: "out", color: "green" }
+  ]
+});
+</script>
+</body>
+</html>

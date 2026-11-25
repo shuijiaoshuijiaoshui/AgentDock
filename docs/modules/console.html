@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L2 · console/ · 渠道层与人工坐席</title>
+<style>
+  :root { --brand:#07b464; --bg:#f4f6f8; --text:#26313d; --muted:#8a97a5;
+    --line:#e6ebf0; --sec:#e64340; --warn:#faad14; --blue:#1890ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); padding:28px 12px 60px; }
+  .wrap { max-width:960px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.7; }
+  h2 { font-size:17px; margin:26px 0 10px; padding-left:10px; border-left:4px solid var(--brand); scroll-margin-top:120px; }
+  h2.sec { border-color:var(--sec); } h2.perf { border-color:var(--blue); }
+  .crumb { font-size:12.5px; color:var(--muted); margin-bottom:14px; }
+  a.x { color:var(--brand); text-decoration:none; border-bottom:1px dashed #b7ebd4; }
+  code { font-family:Consolas,monospace; font-size:11.5px; color:#b06ab3; background:#faf5fd; border-radius:4px; padding:1px 5px; }
+  .node { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:10px; padding:12px 16px; margin:8px 0; }
+  .node .d { font-size:12.5px; color:var(--muted); line-height:1.7; margin-top:4px; }
+  .node .d b { color:var(--text); }
+  .code { display:inline-block; font-family:Consolas,monospace; font-size:11px; color:#1890ff; background:#f0f6ff; border-radius:4px; padding:1px 6px; margin-top:6px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:6px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .card h3 { font-size:13.5px; margin-bottom:4px; }
+  .card .d { font-size:12.5px; color:var(--muted); line-height:1.65; }
+  .card .d b { color:var(--text); }
+  table.t { width:100%; border-collapse:collapse; margin:8px 0; background:#fff; border-radius:10px; overflow:hidden; }
+  table.t th, table.t td { border:1px solid var(--line); padding:7px 10px; font-size:12.5px; text-align:left; vertical-align:top; }
+  table.t th { background:#eaf4ff; }
+  .note { color:var(--muted); font-size:12px; margin:6px 0 0; line-height:1.7; }
+  #mm, #mflow { margin:8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="crumb"><a href="../tour.html">← 返回总览</a> ｜ 旅程锚点 <a class="x" href="../journey.html#j0">J0–J1</a> · <a class="x" href="../journey.html#h3">H3–H6</a> ｜ 分道时序 <a class="x" href="../swimlane.html">swimlane 场景 A/C</a> ｜ 相关 <a class="x" href="orchestrator.html">orchestrator</a> · <a class="x" href="shared.html">shared</a></div>
+
+  <div id="mm"></div>
+
+  <h1>🎧 console/ · 渠道层 + 人工坐席工作台</h1>
+  <div class="sub">五节结构：定位 / 对外接口 / 内部结构 / 核心代码流程 / 注意点。每个论断标代码出处，可对照源码验证。<br>
+  最后对照代码校验：<b>2026-11-07</b>（防腐 = 改代码后 AI 重读重生成）。</div>
+
+  <h2>模块定位</h2>
+  <div class="node"><b>🎯 一句话说清：客户与坐席的一切入口，AI→人的接力做成协议动作而不是 UI 魔法</b>
+    <div class="d">一个进程六合一：对协议它是 <b>A2A Server（skill=handoff.accept）</b>——编排转人工与调普通域同路径；对人它是<b>工作台三栏</b>（队列/摘要/360/工单/知识库/统计/审批/trace，phase4）；对客户它是组件化的客户页 + /portal 演示壳；底层 REST + WebSocket；还内置坐席 AI 助手（左栏下半直问主 Agent，toB 入口）。特色设计：<b>conversations.id == A2A contextId</b>，AI 任务、交接包、坐席队列、M4 摘要全靠这一个 id 对齐。</div>
+    <span class="code">console/server.py:116 HumanDeskExecutor · console/db.py:34 建表 · static/（customer+workbench+portal 三页）</span>
+  </div>
+
+  <h2 class="perf">对外接口（谁调它 / 它调谁）</h2>
+  <div class="grid">
+    <div class="card"><h3>⬅️ 被谁调用</h3>
+      <div class="d">编排 handoff 节点（A2A handoff.accept，H2）；三个页面的浏览器（WS + REST）；workbench 的审批/统计/trace API；smoke/ui_smoke/browser_smoke 三层冒烟。对客户端它是"渠道层"——客户先到这，再到编排。</div>
+      <span class="code">orchestrator/graph.py:1246 · tests/test_workbench_e2e.py · scripts/browser_smoke.py</span></div>
+    <div class="card"><h3>➡️ 它调谁</h3>
+      <div class="d">编排 :8300（handle_customer_message / api_assist_ask 内 delegate，含 Card 验签）；域 Server（工具面板 A2A 直调，绕过编排）；mock.db（customer.query 直查）；securityd :8309（审计/审批，remote 模式）。渠道根 span 在此激活（M4）。</div>
+      <span class="code">console/server.py:586 · :2283 · console/tools.py:123 invoke · shared/tracing.py:96</span></div>
+  </div>
+
+  <h2>内部结构（逐文件表）</h2>
+  <table class="t">
+    <tr><th>文件</th><th>职责</th><th>关键符号</th></tr>
+    <tr><td>server.py（2938 行）</td><td>A2A 执行器 + WS 端点 + 全部 REST（会话/卡片/附件/工单/知识库/统计/审批/trace）+ 连接注册表 + 历史/摘要组装</td><td><b>server.py:116</b> HumanDeskExecutor · <b>:199</b> ConvSockets · <b>:555</b> _build_history_meta · <b>:586</b> handle_customer_message · <b>:1084</b> api_customer_send · <b>:1689</b> api_card_action · <b>:1983</b> api_trace_spans · <b>:2159</b> ws_chat · <b>:2283</b> api_assist_ask</td></tr>
+    <tr><td>db.py（1060 行）</td><td>console.db 16 表：tenants/users/conversations/messages/handoff_queue/pending_actions/agent_runs/agent_steps/attachments/feedback/assist_messages/notes/reads/<b>session_summaries(M4)</b>/quick_replies（全带 tenant_id）</td><td><b>db.py:460</b> add_message · <b>:502</b> enqueue_handoff · <b>:536</b> take_handoff · <b>:683</b> record_agent_run · <b>:981/:991</b> get/upsert_session_summary</td></tr>
+    <tr><td>tools.py</td><td>工具面板注册表：customer.query（坐席专属脱敏直查）+ A2A 直调域工具 + 工单/知识库工具；统一审计</td><td><b>tools.py:100</b> registry · <b>:123</b> invoke · <b>:30</b> query_customer</td></tr>
+    <tr><td>attachments.py</td><td>附件上传/下载（读前限量，2b）</td><td><b>attachments.py:28</b></td></tr>
+    <tr><td>static/*</td><td>customer.html（组件化+历史游标）· workbench.html（三栏）· portal.html（演示壳）；样式外置 + CSP script-src 'self'</td><td>console/static/（css/js 分离）</td></tr>
+  </table>
+
+  <h2 class="perf">核心代码流程（一图流 · 节点注解见下表）</h2>
+  <div id="mflow"></div>
+  <table class="t">
+    <tr><th>节点</th><th>注解</th><th>出处</th></tr>
+    <tr><td>聊天入口</td><td>WS 与 REST 双入口共用 handle_customer_message：JWT→mask_pii→写 messages→扇出→AI 模式委托编排（含 history 组装）/人工模式直通</td><td><b>server.py:586</b> · :2159 ws_chat · :1084 api_customer_send</td></tr>
+    <tr><td>委托编排</td><td>_build_history_meta（摘要+近 6 轮+掉窗轮次，逐轮复过 mask_pii）进 metadata；delegate 内 Card 验签；<b>渠道根 span console.customer_turn</b></td><td><b>server.py:555</b> · shared/a2a_client.py:112 · tracing.py:96</td></tr>
+    <tr><td>AI 应答回流</td><td>Artifact 的 handoff / hit_wall_count / <b>session_summary</b> 写回（pending_handoff / 碰壁续计 / 摘要落库）；agent_runs+steps 落调用链；资金写链自动进复核</td><td><b>server.py:660</b> 附近 · db.py:991 · :364 _persist_agent_run</td></tr>
+    <tr><td>交接包入队</td><td>HumanDeskExecutor 解析 JSON → enqueue_handoff → 会话置 pending_handoff → ack（带 span）</td><td><b>server.py:116</b> · db.py:502</td></tr>
+    <tr><td>接管/回流</td><td>takeover：queue=taken + mode=human + system 消息（澄清挂起中 409）；return：mode=ai；都扇出</td><td><b>server.py:929 / :959</b></td></tr>
+    <tr><td>WS 扇出</td><td>ConvSockets：dict[会话id→set[WebSocket]]（首包 JWT 认证，Origin 校验）；快照（历史+状态）首连下发</td><td><b>server.py:199 · :2159</b></td></tr>
+    <tr><td>观测 API</td><td>GET /api/traces/{trace_id}：扫 .data/traces/*.jsonl 重建跨进程调用树；/api/audit/events 哈希链查询与校验</td><td><b>server.py:1983</b> api_trace_spans · shared/tracing.py:228/:251</td></tr>
+  </table>
+
+  <h2 class="sec" id="ws">注意点（设计取舍与已知边界）</h2>
+  <div class="grid">
+    <div class="card"><h3>🔴 WS 鉴权自管（中间件不覆盖 ws scope）</h3>
+      <div class="d">Starlette BaseHTTPMiddleware 只处理 http scope——WebSocket 请求不会过鉴权中间件。ws_chat 端点内自校验：<b>连接后首包 {"type":"auth","token":JWT}</b>（1C 起替换 query 参数），验签取 tenant/actor/role，并校验 Origin 白名单。</div>
+      <span class="code">console/server.py:2159 ws_chat · shared/auth.py:223 auth_from_headers</span></div>
+    <div class="card"><h3>🟡 扇出注册表是进程内的</h3>
+      <div class="d">ConvSockets 是 dict——单实例够用；多实例部署同会话连接会落在不同进程，届时此处换 Redis pub/sub（代码注释与 README 已标注，这是本项目 Redis 的正确出场时机）。</div>
+      <span class="code">console/server.py:199（进程内 dict）· 说明见 README</span></div>
+    <div class="card"><h3>✅ REST 与 WS 共用写库路径</h3>
+      <div class="d">handle_customer_message / handle_agent_reply 是唯一写入口：无论消息从 WS 还是 REST 进来，落库与扇出行为一致——避免双通道状态漂移。REST 保留作建会话与兜底。</div>
+      <span class="code">console/server.py:586 · :2159</span></div>
+    <div class="card"><h3>✅ 渠道层持会话态（wall_count / history）</h3>
+      <div class="d">每轮对话是新 Task，图状态会重置——碰壁计数与多轮历史都活在更长寿的渠道层：wall_count 存 conversations、M4 摘要存 session_summaries，每轮经请求级 metadata 进图，产物回写。<b>编排无状态可横向扩，会话态有唯一属主</b>。</div>
+      <span class="code">server.py:555 _build_history_meta · db.py:991 · orchestrator/graph.py:362 intake</span></div>
+    <div class="card"><h3>🟡 澄清中的会话不可接管</h3>
+      <div class="d">takeover 要求 status==pending_handoff，否则 409——AI 流程没走完时人工截断会让 pending_task_id 悬空。先回填澄清或等 nomatch 自动转人工。e2e 有断言。</div>
+      <span class="code">console/server.py:929 api_takeover</span></div>
+    <div class="card"><h3>✅ 前端安全基线（1C/phase3）</h3>
+      <div class="d">动态内容统一 textContent；脚本样式全部外置；CSP <code>script-src 'self'; style-src 'self'</code>（无 unsafe-inline）；Cookie HttpOnly+SameSite=Lax 分名 + X-CSRF-Token 写校验；customer 页 frame-ancestors 'self'（可被 /portal 内嵌），workbench 'none'；历史用游标分页防同秒抖动。</div>
+      <span class="code">shared/security_headers.py · console/static/ · server.py 历史游标 :960 附近</span></div>
+  </div>
+
+  <div class="note" style="margin-top:16px">相关：orchestrator.html（转人工触发方）· <a class="x" href="../journey.html#h3">journey H3–H6</a> · <a class="x" href="../swimlane.html">泳道图场景 A/C</a> ｜ <a class="x" href="../tour.html">← 总览</a></div>
+</div>
+<script src="../assets/renderFlow.js"></script>
+<script>
+renderFlow("mm", { small: true,
+  rows: [["cust", "console", "orch", "merch", "sec"]],
+  nodes: {
+    cust:  { label: "客户页", sub: "WS/REST", color: "gray", current: true },
+    console:{ label: "console :8307", sub: "人工坐席", color: "green", href: "console.html", current: true },
+    orch:  { label: "编排 :8300", sub: "主图", color: "green", href: "orchestrator.html" },
+    merch: { label: "域 Agent", sub: "×7", color: "green", href: "merchandising.html" },
+    sec:   { label: "shared/ 桥接层", sub: "SDK↔LangGraph", color: "blue", href: "shared.html" }
+  },
+  edges: [
+    { from: "cust", to: "console", color: "gray" },
+    { from: "console", to: "orch", color: "green" },
+    { from: "orch", to: "merch", color: "green" },
+    { from: "merch", to: "sec", color: "gray" }
+  ]
+});
+renderFlow("mflow", { small: true,
+  rows: [["msg", "hist", "ai"], ["hq", "take", "obs"]],
+  nodes: {
+    msg:  { label: "客户消息进", sub: "WS/REST 双入口", color: "blue" },
+    hist: { label: "落库+history+扇出", sub: "messages/摘要/ConvSockets", color: "green" },
+    ai:   { label: "AI 委托编排", sub: "根span+验签+同contextId", color: "green" },
+    hq:   { label: "handoff 入队", sub: "交接包→pending_handoff", color: "red" },
+    take: { label: "接管/回复/交还", sub: "mode=human→ai", color: "red" },
+    obs:  { label: "观测回看", sub: "trace树/审计链/agent_runs", color: "blue" }
+  },
+  edges: [
+    { from: "msg", to: "hist", color: "green" },
+    { from: "hist", to: "ai", color: "green", label: "AI 模式" },
+    { from: "ai", to: "hq", color: "red", label: "artifact.handoff=true" },
+    { from: "hq", to: "take", color: "red", label: "坐席接管" },
+    { from: "hist", to: "obs", color: "gray", dashed: true, label: "事后可查" }
+  ]
+});
+</script>
+</body>
+</html>
