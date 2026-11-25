@@ -186,5 +186,5 @@ agentdock/
 - Card JWS 已知限制：kid 轮换后旧签名 Card 在客户端缓存 TTL（300s）内仍被信任——轮换方必须把旧公钥保留在 `CARD_VERIFY_KEYS_JSON`。
 - 安全存储当前为共享 SQLite（`SHARED_DB_PATH`）；生产多实例需换 Postgres + advisory lock/队列，限流换 Redis/网关。
 - `KEY_PROVIDER=kms` 是适配点，尚未绑定具体云 SDK；生产须实现 `shared/keys.py` 的 KMSKeyProvider。
-- `.archify` 泳道图仍是 v2.1「四域」口径，待按 v2.2 重绘。
+- 泳道图仍是 v2.1「四域」口径，待按 v2.2 重绘。
 - 多实例部署时 console 的 WS 扇出注册表换 Redis pub/sub。

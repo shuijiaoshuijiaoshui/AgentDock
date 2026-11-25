@@ -1488,7 +1488,7 @@ sequenceDiagram
 | **政策双形态（子 Agent + 域内工具）** | **3.2 / 7.3.7** | `route` / `retrieve`（各域内） |
 | **串行深度与并行上限** | **7.5** | `route` |
 
-> **`.archify` 现状（v2.0 已同步）**：主流程图 12 节点（`q` → `intent` → `route` → `snapshot` → `discover` → `retrieve` → `arbitrate` → `generate` → `answer`，异常支 `saga` / `nomatch` / `handoff`），泳道图 10 节点（单入口 → 理解 → 域路由 → 四域集群 → 权威裁决 → 合成 → 交付 + 治理三项），两图均有对应下钻子图与节点详解。
+> **流程图现状（v2.0 已同步）**：主流程图 12 节点（`q` → `intent` → `route` → `snapshot` → `discover` → `retrieve` → `arbitrate` → `generate` → `answer`，异常支 `saga` / `nomatch` / `handoff`），泳道图 10 节点（单入口 → 理解 → 域路由 → 四域集群 → 权威裁决 → 合成 → 交付 + 治理三项），两图均有对应下钻子图与节点详解。
 >
 > 泳道图把五个业务域聚合为一个「业务域专家集群」节点（v2.1 图为四域，v2.2 起需同步重绘）：Archify 的可读性规则不允许 4 个以上同列节点向同列目标扇入（3 个以内成立，4 个必然违反走廊与交叉约束）。这是**制图约束下的有意识取舍**，五域的拆分与边界以 PRD 第 3 章域地图与权威源矩阵为准。
 
